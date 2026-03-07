@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"nexus-core/internal/config"
+	"nexus-core/internal/nlp"
 	"strings"
 	"time"
 
@@ -20,126 +22,139 @@ import (
 )
 
 func StartClient(dbDSN string) {
-	dbLog := waLog.Stdout("Database", "INFO", true)
-
-	// 1. Abrir conexión con pgx
+	// 1. Configuración de Logs y DB
+	dbLog := waLog.Stdout("Database", "ERROR", true)
 	db, err := sql.Open("pgx", dbDSN)
 	if err != nil {
-		fmt.Printf("Error al abrir la base de datos: %v\n", err)
+		fmt.Printf("❌ Error DB: %v\n", err)
 		return
 	}
 
-	// 2. Validar conexión
-	if err := db.Ping(); err != nil {
-		fmt.Printf("\n[ERROR CRÍTICO] El ping falló: %v\n", err)
-		return
-	}
-
-	// 3. Inicializar Store y EJECUTAR UPGRADE PRIMERO
+	// 2. Inicializar Almacén de Sesiones
 	container := sqlstore.NewWithDB(db, "postgres", dbLog)
-
-	// Esto crea las tablas whatsmeow_device, etc.
 	err = container.Upgrade(context.Background())
 	if err != nil {
-		fmt.Printf("Error al ejecutar migraciones de WhatsApp: %v\n", err)
+		fmt.Printf("❌ Error Upgrade: %v\n", err)
 		return
 	}
 
-	// 4. Ahora sí, obtener el dispositivo
 	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
-		fmt.Printf("Error al obtener el dispositivo: %v\n", err)
+		fmt.Printf("❌ Error DeviceStore: %v\n", err)
 		return
 	}
 
-	clientLog := waLog.Stdout("Client", "INFO", true)
+	// 3. Configurar Cliente
+	clientLog := waLog.Stdout("Client", "ERROR", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
-	// 5. Manejador de eventos (Captura mensajes de cualquier formato)
+	// 4. Inicializar Cerebro (NLP)
+	cfg := config.LoadConfig()
+	brain, err := nlp.NewBrain(cfg)
+	if err != nil {
+		fmt.Printf("❌ Error Cerebro: %v\n", err)
+	}
+
+	// 5. Manejador de Eventos
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
-			// Intentamos extraer el texto de varias fuentes posibles en el objeto de la mensaje
-			var msgText string
+			handleIncomingMessage(client, v, db, brain)
 
-			// Prioridad 1: Texto simple
-			if v.Message.GetConversation() != "" {
-				msgText = v.Message.GetConversation()
-			} else if v.Message.GetExtendedTextMessage().GetText() != "" {
-				// Prioridad 2: Mensajes con formato o respuestas
-				msgText = v.Message.GetExtendedTextMessage().GetText()
-			} else if v.Message.GetImageMessage().GetCaption() != "" {
-				// Prioridad 3: Subtítulos de imágenes
-				msgText = "[Imagen]: " + v.Message.GetImageMessage().GetCaption()
-			}
-
-			// Si logramos extraer texto, procesamos la exhibición y la base de datos
-			if msgText != "" {
-				sender := v.Info.Sender.User
-				fmt.Printf("\n📩 WhatsApp de %s: %s\n", sender, msgText)
-
-				// GUARDAR EN LA BASE DE DATOS (Persistencia)
-				query := `INSERT INTO messages (source, sender_id, content, is_from_nexus) VALUES ($1, $2, $3, $4)`
-				_, err := db.Exec(query, "whatsapp", sender, msgText, false)
-				if err != nil {
-					fmt.Printf("❌ Error SQL al guardar mensaje: %v\n", err)
-				} else {
-					fmt.Println("💾 Mensaje guardado en la memoria de Nexus.")
-				}
-			}
+		case *events.StreamReplaced:
+			// Manejo de colisión manual
+			fmt.Println("\n⚠️ Conexión reemplazada por otra instancia. Deteniendo este nodo...")
 		}
 	})
 
-	// 6. Conexión y QR
+	// 6. Lógica de Conexión / QR
 	if client.Store.ID == nil {
-		qrChan, _ := client.GetQRChannel(context.Background())
-		err = client.Connect()
-		if err != nil {
-			fmt.Printf("Error al conectar para QR: %v\n", err)
-			return
-		}
-
-		fmt.Println("\n--- AUTENTICACIÓN NEXUS ---")
-		for evt := range qrChan {
-			switch evt.Event {
-			case "code":
-				q, _ := qrcode.New(evt.Code, qrcode.Medium)
-				fmt.Println(q.ToSmallString(false))
-				fmt.Println("Nexus: Escanea el código arriba con tu WhatsApp para vincular.")
-			case "success":
-				fmt.Println("Nexus: ¡Vinculación exitosa!")
-			}
-		}
+		renderQR(client)
 	} else {
 		err = client.Connect()
 		if err != nil {
-			fmt.Printf("Error al conectar: %v\n", err)
+			fmt.Printf("❌ Error al conectar: %v\n", err)
 			return
 		}
-		fmt.Println("Nexus: Sesión recuperada de Postgres. Conectado a WhatsApp.")
+		fmt.Println("✅ Nexus: Conexión estable y sesión recuperada.")
 	}
 }
 
-// SendMessage conecta a WhatsApp, envía un mensaje y se cierra.
+func handleIncomingMessage(client *whatsmeow.Client, v *events.Message, db *sql.DB, brain *nlp.Brain) {
+	msgText := ""
+	if v.Message.GetConversation() != "" {
+		msgText = v.Message.GetConversation()
+	} else if v.Message.GetExtendedTextMessage().GetText() != "" {
+		msgText = v.Message.GetExtendedTextMessage().GetText()
+	}
+
+	if msgText == "" {
+		return
+	}
+
+	senderStr := v.Info.Sender.String()
+	// Usamos PushName para ver quién escribe en consola
+	fmt.Printf("\n📩 [%s]: %s\n", v.Info.PushName, msgText)
+
+	// Persistencia en Postgres
+	query := `INSERT INTO messages (source, sender_id, content, is_from_nexus) VALUES ($1, $2, $3, $4)`
+	db.Exec(query, "whatsapp", senderStr, msgText, false)
+
+	// Lógica de Respuesta IA con filtro "Nexus"
+	if strings.HasPrefix(strings.ToLower(msgText), "nexus") {
+		fmt.Println("🧠 Procesando con Gemini...")
+		cleanInput := strings.TrimPrefix(strings.ToLower(msgText), "nexus")
+
+		reply, err := brain.ProcessMessage(cleanInput)
+		if err != nil {
+			fmt.Printf("❌ Error IA: %v\n", err)
+			return
+		}
+
+		// Enviar respuesta al JID original
+		_, err = client.SendMessage(context.Background(), v.Info.Sender, &waProto.Message{
+			Conversation: proto.String(reply),
+		})
+
+		if err == nil {
+			fmt.Printf("🤖 Nexus dice: %s\n", reply)
+		} else {
+			fmt.Printf("❌ Error al enviar respuesta: %v\n", err)
+		}
+	}
+}
+
+func renderQR(client *whatsmeow.Client) {
+	qrChan, _ := client.GetQRChannel(context.Background())
+	err := client.Connect()
+	if err != nil {
+		return
+	}
+
+	for evt := range qrChan {
+		if evt.Event == "code" {
+			q, _ := qrcode.New(evt.Code, qrcode.Medium)
+			fmt.Println(q.ToSmallString(false))
+			fmt.Println("👉 Escanea para vincular Nexus.")
+		} else if evt.Event == "success" {
+			fmt.Println("✅ ¡Vinculación exitosa!")
+		}
+	}
+}
+
 func SendMessage(dbDSN, target, text string) error {
 	db, _ := sql.Open("pgx", dbDSN)
 	container := sqlstore.NewWithDB(db, "postgres", nil)
-	deviceStore, err := container.GetFirstDevice(context.Background())
-	if err != nil || deviceStore == nil {
-		return fmt.Errorf("no se encontró una sesión activa. Ejecuta 'nexus serve' primero")
-	}
+	deviceStore, _ := container.GetFirstDevice(context.Background())
 
 	client := whatsmeow.NewClient(deviceStore, nil)
-	err = client.Connect()
+	err := client.Connect()
 	if err != nil {
 		return err
 	}
 
-	// Esperar un momento a que la conexión se estabilice
-	fmt.Println("⏳ Sincronizando sesión...")
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 
-	// Limpiar el número de +, [ ] y espacios
 	cleanTarget := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
 			return r
@@ -148,16 +163,10 @@ func SendMessage(dbDSN, target, text string) error {
 	}, target)
 
 	jid := types.NewJID(cleanTarget, types.DefaultUserServer)
-
 	_, err = client.SendMessage(context.Background(), jid, &waProto.Message{
 		Conversation: proto.String(text),
 	})
 
-	if err == nil {
-		fmt.Println("🚀 Comando de envío procesado.")
-	}
-
-	// Darle un segundo extra para asegurar que el paquete salió
 	time.Sleep(1 * time.Second)
 	client.Disconnect()
 	return err

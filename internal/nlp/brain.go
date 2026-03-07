@@ -52,3 +52,15 @@ func (b *Brain) Ask(prompt string) (string, error) {
 
 	return result, nil
 }
+
+// ProcessMessage recibe un texto, le pregunta a Gemini y devuelve la respuesta
+func (b *Brain) ProcessMessage(text string) (string, error) {
+	// 1. Definir el contexto/personalidad de Nexus
+	systemPrompt := "Eres Nexus, un asistente personal inteligente desarrollado en Go. " +
+		"Tus respuestas deben ser breves, útiles y en español. " +
+		"Si no sabes algo, admítelo con elegancia."
+
+	fullPrompt := fmt.Sprintf("%s\n\nUsuario dice: %s\nNexus responde:", systemPrompt, text)
+
+	return b.Ask(fullPrompt)
+}
