@@ -53,7 +53,7 @@ var summarizeCmd = &cobra.Command{
 		prompt := fmt.Sprintf("A continuación tienes los últimos mensajes recibidos en WhatsApp. "+
 			"Por favor, haz un resumen ejecutivo muy breve de los temas tratados:\n\n%s", contextText)
 
-		resumen, err := brain.Ask(prompt)
+		resumen, err := brain.Provider.Ask(prompt)
 		if err != nil {
 			fmt.Printf("❌ Error de IA: %v\n", err)
 			return

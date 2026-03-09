@@ -33,7 +33,6 @@ var statusCmd = &cobra.Command{
 		fmt.Println("\n🧠 Verificando conexión con Gemini AI...")
 		cfg := config.LoadConfig()
 
-		// Verificación de depuración (puedes borrar esto después)
 		if cfg.AI.APIKey == "" {
 			fmt.Println("❌ Error: La API Key cargada desde el YAML está VACÍA.")
 			return
@@ -46,9 +45,10 @@ var statusCmd = &cobra.Command{
 			fmt.Printf("❌ IA: Error de configuración: %v\n", err)
 			return
 		}
-		defer brain.Client.Close()
 
-		respuesta, err := brain.Ask("Hola, responde con la palabra 'CONECTADO' si puedes leerme.")
+		defer brain.Provider.Close()
+
+		respuesta, err := brain.Provider.Ask("Hola, responde con la palabra 'CONECTADO' si puedes leerme.")
 		if err != nil {
 			fmt.Printf("❌ IA: Error de comunicación: %v\n", err)
 		} else {

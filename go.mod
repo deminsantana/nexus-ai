@@ -6,6 +6,7 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/google/generative-ai-go v0.20.1
 	github.com/jackc/pgx/v5 v5.8.0
+	github.com/sashabaranov/go-openai v1.41.2
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/cobra v1.10.2
 	go.mau.fi/whatsmeow v0.0.0-20260305215846-fc65416c22c4
