@@ -131,7 +131,9 @@ func handleIncomingMessage(client *whatsmeow.Client, v *events.Message, db *sql.
 		fmt.Println("🧠 Procesando con Gemini...")
 		cleanInput := strings.TrimPrefix(strings.ToLower(msgText), "nexus")
 
-		reply, err := brain.ProcessMessage(cleanInput)
+		// reply, err := brain.ProcessMessage(cleanInput)
+		// Pasamos el senderID para que Redis sepa de quién es el contexto
+		reply, err := brain.ProcessMessageWithContext(senderStr, cleanInput)
 		if err != nil {
 			fmt.Printf("❌ Error IA: %v\n", err)
 			return
