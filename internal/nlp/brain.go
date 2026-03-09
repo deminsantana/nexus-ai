@@ -8,6 +8,7 @@ import (
 // Provider define el contrato que cualquier IA debe cumplir
 type Provider interface {
 	Ask(prompt string) (string, error)
+	ProcessAudio(data []byte, mimeType string) (string, error)
 	Close() error
 }
 

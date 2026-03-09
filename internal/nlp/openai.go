@@ -1,6 +1,7 @@
 package nlp
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"nexus-core/internal/config"
@@ -40,6 +41,35 @@ func (o *OpenAIProvider) Ask(prompt string) (string, error) {
 	}
 
 	return resp.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAIProvider) ProcessAudio(data []byte, mimeType string) (string, error) {
+	ctx := context.Background()
+
+	// 1. Transcripción con Whisper
+	// Creamos un lector a partir de los bytes recibidos de WhatsApp
+	audioReader := bytes.NewReader(data)
+
+	req := openai.AudioRequest{
+		Model:    openai.Whisper1,
+		Reader:   audioReader,
+		FilePath: "voice_note.ogg", // Nombre ficticio para que la API detecte el formato
+	}
+
+	transcription, err := o.Client.CreateTranscription(ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("error en Whisper (STT): %v", err)
+	}
+
+	if transcription.Text == "" {
+		return "No se detectó audio claro en la nota de voz.", nil
+	}
+
+	fmt.Printf("📝 Transcripción de Whisper: %s\n", transcription.Text)
+
+	// 2. Procesar el texto transcrito con el LLM (GPT)
+	// Reutilizamos el método Ask para que la IA responda al contenido del audio
+	return o.Ask("El usuario envió una nota de voz que dice: " + transcription.Text)
 }
 
 func (o *OpenAIProvider) Close() error {

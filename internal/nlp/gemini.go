@@ -48,6 +48,35 @@ func (g *GeminiProvider) Ask(prompt string) (string, error) {
 	return result, nil
 }
 
+func (g *GeminiProvider) ProcessAudio(data []byte, mimeType string) (string, error) {
+	ctx := context.Background()
+
+	// Prompt de sistema para dar contexto al audio
+	// prompt := genai.Text("Soy tu dueño, Demin Santana. Escucha este audio y responde de forma inteligente.")
+	prompt := genai.Text("Transcribe exactamente lo que dice este audio y luego responde a la petición. Formato: [Transcripción] | [Respuesta]")
+
+	// Adjuntamos los datos del audio (WhatsApp suele enviar audio/ogg; codecs=opus)
+	blob := genai.Blob{
+		MIMEType: mimeType,
+		Data:     data,
+	}
+
+	resp, err := g.Model.GenerateContent(ctx, prompt, blob)
+	if err != nil {
+		return "", fmt.Errorf("error procesando audio en Gemini: %v", err)
+	}
+
+	if len(resp.Candidates) == 0 {
+		return "No pude entender el audio.", nil
+	}
+
+	var result string
+	for _, part := range resp.Candidates[0].Content.Parts {
+		result += fmt.Sprintf("%v", part)
+	}
+	return result, nil
+}
+
 func (g *GeminiProvider) Close() error {
 	// Mantiene una conexión persistente tipo gRPC,
 	// es necesario cerrarla.

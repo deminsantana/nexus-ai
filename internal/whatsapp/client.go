@@ -61,6 +61,32 @@ func StartClient(dbDSN string) {
 		case *events.Message:
 			handleIncomingMessage(client, v, db, brain)
 
+			if v.Message.GetAudioMessage() != nil {
+				audioMsg := v.Message.GetAudioMessage()
+				fmt.Println("🎤 Nota de voz recibida. Descargando...")
+
+				// Descargar los bytes del audio desde los servidores de WhatsApp
+				data, err := client.Download(context.Background(), audioMsg)
+				if err != nil {
+					fmt.Printf("❌ Error descargando audio: %v\n", err)
+					return
+				}
+
+				// Procesar con el cerebro
+				fmt.Println("🧠 Nexus está escuchando la nota de voz...")
+				// WhatsApp usa "audio/ogg; codecs=opus"
+				reply, err := brain.Provider.ProcessAudio(data, "audio/ogg")
+				if err != nil {
+					fmt.Printf("❌ Error de IA en audio: %v\n", err)
+					return
+				}
+
+				// Responder por texto (por ahora)
+				client.SendMessage(context.Background(), v.Info.Sender, &waProto.Message{
+					Conversation: proto.String("🤖 Escuché tu nota de voz: " + reply),
+				})
+			}
+
 		case *events.StreamReplaced:
 			// Manejo de colisión manual
 			fmt.Println("\n⚠️ Conexión reemplazada por otra instancia. Deteniendo este nodo...")

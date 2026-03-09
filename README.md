@@ -42,4 +42,9 @@ Nexus funciona bajo un modelo de eventos. Cada vez que llega un paquete de datos
 1. **Verificar Servicios:**
    ```bash
    nexus status
+   nexus serve
+   nexus help-me
+   nexus help or --help or -h
+   nexus send
+   nexus summarize
    ```
