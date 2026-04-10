@@ -14,9 +14,10 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Verifica el estado de los servicios (Postgres y Redis)",
 	Run: func(cmd *cobra.Command, args []string) {
+		cfg := config.LoadConfig()
 		services := map[string]string{
-			"Postgres (Nexus DB)": "127.0.0.1:5433",
-			"Redis (Cache)":       "127.0.0.1:6380",
+			"Postgres (Nexus DB)": fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port),
+			"Redis (Cache)":       fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
 		}
 
 		fmt.Println("🔍 Verificando infraestructura de Nexus...")
@@ -31,7 +32,6 @@ var statusCmd = &cobra.Command{
 		}
 
 		fmt.Println("\n🧠 Verificando conexión con Gemini AI...")
-		cfg := config.LoadConfig()
 
 		if cfg.AI.APIKey == "" {
 			fmt.Println("❌ Error: La API Key cargada desde el YAML está VACÍA.")
@@ -40,7 +40,7 @@ var statusCmd = &cobra.Command{
 			fmt.Printf("ℹ️ API Key detectada (comienza por: %s...)\n", cfg.AI.APIKey[:5])
 		}
 
-		brain, err := nlp.NewBrain(cfg)
+		brain, err := nlp.NewBrain(cfg, nil)
 		if err != nil {
 			fmt.Printf("❌ IA: Error de configuración: %v\n", err)
 			return

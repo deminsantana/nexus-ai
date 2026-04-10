@@ -48,7 +48,7 @@ var summarizeCmd = &cobra.Command{
 
 		// 2. Preparar el prompt para la IA
 		fmt.Println("🧠 Nexus está analizando el historial...")
-		brain, _ := nlp.NewBrain(cfg)
+		brain, _ := nlp.NewBrain(cfg, nil)
 		contextText := strings.Join(history, "\n")
 		prompt := fmt.Sprintf("A continuación tienes los últimos mensajes recibidos en WhatsApp. "+
 			"Por favor, haz un resumen ejecutivo muy breve de los temas tratados:\n\n%s", contextText)

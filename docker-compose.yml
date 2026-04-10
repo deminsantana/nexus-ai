@@ -1,0 +1,32 @@
+services:
+  # --- INFRAESTRUCTURA PARA NEXUS ---
+
+  # PostgreSQL + pgvector - Puerto 5434 (Para no colisionar con 5433 de tu otro proyecto)
+  postgres_db:
+    image: pgvector/pgvector:pg16
+    container_name: nexus-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgre
+      POSTGRES_PASSWORD: ds123456
+      POSTGRES_DB: nexus_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - nexus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Puerto 6381 (Para no colisionar con 6380 de tu otro proyecto)
+  redis_cache:
+    image: redis:alpine
+    container_name: nexus-redis
+    restart: always
+    ports:
+      - "6381:6379"
+
+volumes:
+  nexus_postgres_data:

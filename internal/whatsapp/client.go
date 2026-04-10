@@ -50,7 +50,7 @@ func StartClient(dbDSN string) {
 
 	// 4. Inicializar Cerebro (NLP)
 	cfg := config.LoadConfig()
-	brain, err := nlp.NewBrain(cfg)
+	brain, err := nlp.NewBrain(cfg, db)
 	if err != nil {
 		fmt.Printf("❌ Error Cerebro: %v\n", err)
 	}
@@ -128,6 +128,15 @@ func handleIncomingMessage(client *whatsmeow.Client, v *events.Message, db *sql.
 
 	// Lógica de Respuesta IA con filtro "Nexus"
 	if strings.HasPrefix(strings.ToLower(msgText), "nexus") {
+		// Controlar Rate Limit (Máx 10 msjs por segundo por usuario)
+		if brain.IsRateLimited(senderStr) {
+			fmt.Printf("⚠️ Usuario %s excedió el límite de tasa (Rate Limit). Ignorando...\n", v.Info.PushName)
+			client.SendMessage(context.Background(), v.Info.Sender, &waProto.Message{
+				Conversation: proto.String("⚠️ Estás enviando mensajes muy rápido. Por favor, espera un momento."),
+			})
+			return
+		}
+
 		fmt.Println("🧠 Procesando con Gemini...")
 		cleanInput := strings.TrimPrefix(strings.ToLower(msgText), "nexus")
 

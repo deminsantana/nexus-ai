@@ -77,6 +77,21 @@ func (g *GeminiProvider) ProcessAudio(data []byte, mimeType string) (string, err
 	return result, nil
 }
 
+func (g *GeminiProvider) Embed(text string) ([]float32, error) {
+	ctx := context.Background()
+	// Usamos gemini-embedding-001 que es el modelo actual disponible y soportado.
+	em := g.Client.EmbeddingModel("gemini-embedding-001")
+	res, err := em.EmbedContent(ctx, genai.Text(text))
+	if err != nil {
+		return nil, fmt.Errorf("error generando embedding: %v", err)
+	}
+	
+	if len(res.Embedding.Values) == 0 {
+		return nil, fmt.Errorf("el modelo devolvió un embedding vacío")
+	}
+	return res.Embedding.Values, nil
+}
+
 func (g *GeminiProvider) Close() error {
 	// Mantiene una conexión persistente tipo gRPC,
 	// es necesario cerrarla.

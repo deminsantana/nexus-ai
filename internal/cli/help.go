@@ -34,12 +34,18 @@ COMANDOS DISPONIBLES:
    Explicación: La IA analiza los últimos 20 mensajes y genera un resumen.
    Uso: Ideal para ponerse al día rápidamente.
 
-5. nexus help-me
+5. nexus ingest [archivo]
+   Explicación: Absorbe un archivo Markdown y lo vectoriza en PostgreSQL (RAG).
+   Uso: Ejecútalo si necesitas actualizar los precios, reglas o conocimientos del robot. Si la tabla no existe en la BD, este comando también se encarga de crearla desde cero.
+   Ejemplo: nexus ingest "knowledge/business_info.md"
+
+6. nexus help-me
    Explicación: Muestra esta pantalla de ayuda.
 
 NOTAS:
 - Para que la IA responda automáticamente en WhatsApp, el mensaje
   debe empezar con la palabra "Nexus".
+- Contamos con un LIMITADOR DE TASA (Rate Limiter) en Redis que ignora comandos de usuarios que manden más de 10 mensajes por segundo.
 ----------------------------------------------------------------------`)
 	},
 }

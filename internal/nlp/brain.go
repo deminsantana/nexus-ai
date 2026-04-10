@@ -2,6 +2,7 @@ package nlp
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"nexus-core/internal/config"
 	"strings"
@@ -14,18 +15,20 @@ import (
 type Provider interface {
 	Ask(prompt string) (string, error)
 	ProcessAudio(data []byte, mimeType string) (string, error)
+	Embed(text string) ([]float32, error)
 	Close() error
 }
 
 // Brain es el orquestador que usa un proveedor específico
 type Brain struct {
 	Provider Provider
+	DB       *sql.DB
 	RDB      *redis.Client
 	Ctx      context.Context
 }
 
 // NewBrain instancia el proveedor configurado en el YAML
-func NewBrain(cfg *config.Config) (*Brain, error) {
+func NewBrain(cfg *config.Config, db *sql.DB) (*Brain, error) {
 	var p Provider
 	var err error
 
@@ -42,13 +45,14 @@ func NewBrain(cfg *config.Config) (*Brain, error) {
 		return nil, err
 	}
 
-	// Inicializar cliente de Redis (ajusta según tu config.yaml)
+	// Inicializar cliente de Redis
 	rdb := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", cfg.Database.Host, 6380), // Puerto estándar Redis
+		Addr: fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port), // Cargado desde config.yaml dinámicamente
 	})
 
 	return &Brain{
 		Provider: p,
+		DB:       db,
 		RDB:      rdb,
 		Ctx:      context.Background(),
 	}, nil
@@ -65,18 +69,26 @@ func (b *Brain) ProcessMessageWithContext(senderID, text string) (string, error)
 	// 1. Obtener lo que hablamos hace poco
 	pastTalk := b.GetContext(senderID)
 
-	systemPrompt := "Eres Nexus, un asistente inteligente. " +
-		"A continuación se muestra el contexto reciente de la conversación:\n" + pastTalk
+	// 2. RAG: Buscar conocimiento de negocio en PostgreSQL
+	knowledge, _ := b.SearchKnowledgeBase(text, 3)
+	
+	systemPrompt := "Eres Nexus, un asistente inteligente de ventas y soporte. "
+	
+	if knowledge != "" {
+		systemPrompt += "Basa TUS RESPUESTAS EXCLUSIVAMENTE en la siguiente Información del Negocio. NO inventes precios que no estén aquí:\n--- INFORMACIÓN DEL NEGOCIO ---\n" + knowledge + "\n-----------------------------\n"
+	}
+
+	systemPrompt += "A continuación se muestra el contexto reciente de la conversación:\n" + pastTalk
 
 	fullPrompt := fmt.Sprintf("%s\nUsuario actual: %s\nNexus:", systemPrompt, text)
 
-	// 2. Preguntar a la IA
+	// 3. Preguntar a la IA
 	reply, err := b.Provider.Ask(fullPrompt)
 	if err != nil {
 		return "", err
 	}
 
-	// 3. Guardar este intercambio en la memoria
+	// 4. Guardar este intercambio en la memoria
 	b.SaveContext(senderID, "Usuario: "+text)
 	b.SaveContext(senderID, "Nexus: "+reply)
 
@@ -103,4 +115,19 @@ func (b *Brain) SaveContext(senderID, message string) {
 	b.RDB.LPush(b.Ctx, key, message)
 	b.RDB.LTrim(b.Ctx, key, 0, 10)          // Mantener solo los últimos 10
 	b.RDB.Expire(b.Ctx, key, 5*time.Minute) // Expira en 5 minutos
+}
+
+// IsRateLimited verifica si un usuario está enviando demasiados mensajes
+func (b *Brain) IsRateLimited(senderID string) bool {
+	key := "ratelimit:" + senderID
+	count, _ := b.RDB.Incr(b.Ctx, key).Result()
+	
+	if count == 1 {
+		b.RDB.Expire(b.Ctx, key, 1*time.Second) // 1 segundo de cooldown
+	}
+	
+	if count > 10 { // Más de 10 mensajes en 1 segundo
+		return true
+	}
+	return false
 }

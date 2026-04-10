@@ -72,6 +72,26 @@ func (o *OpenAIProvider) ProcessAudio(data []byte, mimeType string) (string, err
 	return o.Ask("El usuario envió una nota de voz que dice: " + transcription.Text)
 }
 
+func (o *OpenAIProvider) Embed(text string) ([]float32, error) {
+	ctx := context.Background()
+
+	req := openai.EmbeddingRequest{
+		Input: []string{text},
+		Model: openai.AdaEmbeddingV2, // Standard model for OpenAI text embeddings
+	}
+
+	resp, err := o.Client.CreateEmbeddings(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("error generando embedding en OpenAI: %v", err)
+	}
+
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("el modelo devolvió un embedding vacío")
+	}
+
+	return resp.Data[0].Embedding, nil
+}
+
 func (o *OpenAIProvider) Close() error {
 	// No requiere cierre explícito en la librería actual
 	// OpenAI usa HTTP simple y no mantiene una conexión persistente (como gRPC),

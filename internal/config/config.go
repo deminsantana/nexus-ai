@@ -23,8 +23,14 @@ type AIConfig struct {
 	Model    string `yaml:"model"`
 }
 
+type RedisConfig struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+}
+
 type Config struct {
 	Database DatabaseConfig `yaml:"database"`
+	Redis    RedisConfig    `yaml:"redis"`
 	AI       AIConfig       `yaml:"ai"`
 }
 

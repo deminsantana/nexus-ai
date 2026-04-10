@@ -9,6 +9,9 @@ import (
 
 // Define el esquema inicial de Nexus
 const schema = `
+-- Cargar extensión pgvector
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Tabla de configuraciones globales
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -40,6 +43,16 @@ CREATE TABLE IF NOT EXISTS whatsapp_sessions (
     id SERIAL PRIMARY KEY,
     data BYTEA
 );
+
+-- Tabla RAG para Base de Conocimientos
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(3072)
+);
+
+-- Forzamos la actualización de la columna por si se había creado con 768 en el intento anterior
+ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(3072);
 `
 
 func RunMigrations(conn *pgx.Conn) {
