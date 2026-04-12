@@ -31,8 +31,17 @@ var sendCmd = &cobra.Command{
 
 		fmt.Printf("📤 Enviando mensaje a %s...\n", recipient)
 
-		// Llamamos a una nueva función que crearemos en el paquete whatsapp
-		err := whatsapp.SendMessage(dsn, recipient, message)
+		provider, err := whatsapp.InitProvider(cfg)
+		if err != nil {
+			log.Fatalf("❌ Error inicializando proveedor: %v", err)
+		}
+
+		if cfg.WhatsApp.Provider == "meta" {
+			err = provider.SendMessage(recipient, message)
+		} else {
+			err = whatsapp.SendMessageStatic(dsn, recipient, message)
+		}
+		
 		if err != nil {
 			log.Fatalf("❌ Error al enviar mensaje: %v", err)
 		}

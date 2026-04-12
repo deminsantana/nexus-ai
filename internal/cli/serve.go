@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"nexus-core/internal/config"
 	"nexus-core/internal/database"
+	"nexus-core/internal/nlp"
 	"nexus-core/internal/whatsapp"
 	"os"
 	"os/signal"
@@ -35,10 +37,25 @@ var serveCmd = &cobra.Command{
 
 		fmt.Println("🚀 Nexus Core activado...")
 
-		// 2. Iniciar WhatsApp (se queda bloqueando el proceso)
-		whatsapp.StartClient(dsn)
+		// 2. Inicializar Cerebro (NLP)
+		dbConn, _ := sql.Open("pgx", dsn)
+		brain, err := nlp.NewBrain(cfg, dbConn)
+		if err != nil {
+			fmt.Printf("❌ Error Cerebro: %v\n", err)
+		}
 
-		// 3. BLOQUEO PARA MANTENER EL COMANDO VIVO
+		// 3. Iniciar Proveedor de WhatsApp (Mau local o Meta remoto)
+		provider, err := whatsapp.InitProvider(cfg)
+		if err != nil {
+			log.Fatalf("❌ Error inicializando proveedor: %v", err)
+		}
+		
+		err = provider.Start(cfg, dsn, dbConn, brain)
+		if err != nil {
+			log.Fatalf("❌ Error iniciando proveedor: %v", err)
+		}
+
+		// 4. BLOQUEO PARA MANTENER EL COMANDO VIVO
 		// Escuchamos señales de interrupción del sistema para cerrar elegantemente
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)

@@ -8,6 +8,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ServerConfig struct {
+	Port int `yaml:"port"`
+}
+
 type DatabaseConfig struct {
 	Host    string `yaml:"host"`
 	Port    int    `yaml:"port"`
@@ -28,7 +32,20 @@ type RedisConfig struct {
 	Port int    `yaml:"port"`
 }
 
+type MetaConfig struct {
+	Token         string `yaml:"token"`
+	PhoneNumberId string `yaml:"phone_number_id"`
+	VerifyToken   string `yaml:"verify_token"`
+}
+
+type WhatsAppConfig struct {
+	Provider string     `yaml:"provider"`
+	Meta     MetaConfig `yaml:"meta"`
+}
+
 type Config struct {
+	Server   ServerConfig   `yaml:"server"`
+	WhatsApp WhatsAppConfig `yaml:"whatsapp"`
 	Database DatabaseConfig `yaml:"database"`
 	Redis    RedisConfig    `yaml:"redis"`
 	AI       AIConfig       `yaml:"ai"`

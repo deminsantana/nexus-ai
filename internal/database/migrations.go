@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     embedding vector(3072)
 );
 
+-- Tabla de cuotas de uso (Rate Limiting por BD)
+CREATE TABLE IF NOT EXISTS usage_quotas (
+    sender_id TEXT PRIMARY KEY,
+    messages_sent INT DEFAULT 0,
+    message_limit INT DEFAULT 1000,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Forzamos la actualización de la columna por si se había creado con 768 en el intento anterior
 ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(3072);
 `
