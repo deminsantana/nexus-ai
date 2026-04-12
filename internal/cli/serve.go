@@ -7,8 +7,8 @@ import (
 	"log"
 	"nexus-core/internal/config"
 	"nexus-core/internal/database"
+	"nexus-core/internal/messaging"
 	"nexus-core/internal/nlp"
-	"nexus-core/internal/whatsapp"
 	"os"
 	"os/signal"
 	"syscall"
@@ -44,12 +44,12 @@ var serveCmd = &cobra.Command{
 			fmt.Printf("❌ Error Cerebro: %v\n", err)
 		}
 
-		// 3. Iniciar Proveedor de WhatsApp (Mau local o Meta remoto)
-		provider, err := whatsapp.InitProvider(cfg)
+		// 3. Iniciar Proveedor de Mensajería (Telegram, WhatsApp Mau, WhatsApp Meta)
+		provider, err := messaging.InitProvider(cfg)
 		if err != nil {
 			log.Fatalf("❌ Error inicializando proveedor: %v", err)
 		}
-		
+
 		err = provider.Start(cfg, dsn, dbConn, brain)
 		if err != nil {
 			log.Fatalf("❌ Error iniciando proveedor: %v", err)

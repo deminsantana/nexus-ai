@@ -1,3 +1,5 @@
+// Package whatsapp (legacy) es mantenido por retrocompatibilidad.
+// El nuevo punto de entrada es internal/messaging.
 package whatsapp
 
 import (
@@ -7,28 +9,27 @@ import (
 	"nexus-core/internal/nlp"
 )
 
+// Provider define la interfaz de un proveedor de mensajería.
 type Provider interface {
-	// Start inicializa el cliente (y/o el servidor web para webhooks)
 	Start(cfg *config.Config, dbDSN string, db *sql.DB, brain *nlp.Brain) error
-	
-	// SendMessage envía un mensaje de texto plano a un objetivo
-	// target puede ser JID o número de teléfono.
 	SendMessage(target string, text string) error
 }
 
+// InitProvider mantiene retrocompatibilidad con el paquete legacy.
+// Usa el campo Messaging de la nueva config.
 func InitProvider(cfg *config.Config) (Provider, error) {
-	if cfg.WhatsApp.Provider == "meta" {
+	if cfg.Messaging.Provider == "meta" {
 		return &MetaProvider{
-			token:         cfg.WhatsApp.Meta.Token,
-			phoneNumberId: cfg.WhatsApp.Meta.PhoneNumberId,
-			verifyToken:   cfg.WhatsApp.Meta.VerifyToken,
+			Token:         cfg.Messaging.WhatsApp.Meta.Token,
+			PhoneNumberId: cfg.Messaging.WhatsApp.Meta.PhoneNumberId,
+			VerifyToken:   cfg.Messaging.WhatsApp.Meta.VerifyToken,
 		}, nil
 	}
-	
-	// Default Mau / whatsmeow
-	if cfg.WhatsApp.Provider == "mau" || cfg.WhatsApp.Provider == "" {
+
+	// Default: Mau / whatsmeow
+	if cfg.Messaging.Provider == "mau" || cfg.Messaging.Provider == "" {
 		return &MauProvider{}, nil
 	}
 
-	return nil, fmt.Errorf("proveedor de WhatsApp desconocido: %s", cfg.WhatsApp.Provider)
+	return nil, fmt.Errorf("proveedor desconocido: %s", cfg.Messaging.Provider)
 }

@@ -32,23 +32,41 @@ type RedisConfig struct {
 	Port int    `yaml:"port"`
 }
 
+// --- Configuraciones por plataforma ---
+
 type MetaConfig struct {
 	Token         string `yaml:"token"`
 	PhoneNumberId string `yaml:"phone_number_id"`
 	VerifyToken   string `yaml:"verify_token"`
 }
 
-type WhatsAppConfig struct {
-	Provider string     `yaml:"provider"`
-	Meta     MetaConfig `yaml:"meta"`
+type WhatsAppProviderConfig struct {
+	Meta MetaConfig `yaml:"meta"`
+}
+
+type TelegramConfig struct {
+	BotToken string `yaml:"bot_token"`
+}
+
+// MessagingConfig agrupa la configuración de todas las plataformas de mensajería.
+// El campo 'Provider' determina cuál se activa al iniciar Nexus.
+//
+// Valores de Provider:
+//   - "mau"      → WhatsApp no-oficial (whatsmeow), se vincula con QR
+//   - "meta"     → WhatsApp Business API oficial de Meta
+//   - "telegram" → Bot de Telegram (solo necesitas bot_token de @BotFather)
+type MessagingConfig struct {
+	Provider string                 `yaml:"provider"`
+	WhatsApp WhatsAppProviderConfig `yaml:"whatsapp"`
+	Telegram TelegramConfig         `yaml:"telegram"`
 }
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	WhatsApp WhatsAppConfig `yaml:"whatsapp"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-	AI       AIConfig       `yaml:"ai"`
+	Server    ServerConfig    `yaml:"server"`
+	Messaging MessagingConfig `yaml:"messaging"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Redis     RedisConfig     `yaml:"redis"`
+	AI        AIConfig        `yaml:"ai"`
 }
 
 func LoadConfig() *Config {

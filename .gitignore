@@ -58,3 +58,5 @@ yarn-error.log*
 *.log
 docker-data/
 postgres-data/
+
+vendor

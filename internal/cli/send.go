@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"log"
 	"nexus-core/internal/config"
-	"nexus-core/internal/whatsapp"
+	"nexus-core/internal/messaging"
+	"nexus-core/internal/messaging/whatsapp"
 
 	"github.com/spf13/cobra"
 )
@@ -31,12 +32,12 @@ var sendCmd = &cobra.Command{
 
 		fmt.Printf("📤 Enviando mensaje a %s...\n", recipient)
 
-		provider, err := whatsapp.InitProvider(cfg)
+		provider, err := messaging.InitProvider(cfg)
 		if err != nil {
 			log.Fatalf("❌ Error inicializando proveedor: %v", err)
 		}
 
-		if cfg.WhatsApp.Provider == "meta" {
+		if cfg.Messaging.Provider == "meta" {
 			err = provider.SendMessage(recipient, message)
 		} else {
 			err = whatsapp.SendMessageStatic(dsn, recipient, message)
