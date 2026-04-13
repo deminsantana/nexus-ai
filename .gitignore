@@ -17,7 +17,12 @@ coverage/
 .env
 .env.local
 .env.*.local
-*.yaml
+
+# Config con credenciales reales — nunca subir
+config.yaml
+
+# La plantilla SÍ se incluye en el repositorio
+!config.example.yaml
 
 # IDEs and editors
 .idea/

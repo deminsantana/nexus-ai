@@ -26,15 +26,7 @@ func (m *MetaProvider) Start(cfg *config.Config, dbDSN string, db *sql.DB, brain
 
 	http.HandleFunc("/webhook", m.webhookHandler)
 
-	port := fmt.Sprintf(":%d", cfg.Server.Port)
-	fmt.Printf("✅ Nexus (Meta): Iniciando servidor web para Webhooks en %s\n", port)
-
-	go func() {
-		err := http.ListenAndServe(port, nil)
-		if err != nil {
-			fmt.Printf("❌ Error en Servidor Webhook Meta: %v\n", err)
-		}
-	}()
+	fmt.Printf("✅ Nexus (Meta): Webhook registrado en /webhook\n")
 
 	return nil
 }

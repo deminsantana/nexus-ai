@@ -4,7 +4,13 @@ import (
 	"database/sql"
 	"fmt"
 	"nexus-core/internal/config"
+	"nexus-core/internal/messaging/discord"
+	"nexus-core/internal/messaging/email"
+	"nexus-core/internal/messaging/instagram"
+	"nexus-core/internal/messaging/messenger"
+	"nexus-core/internal/messaging/slack"
 	"nexus-core/internal/messaging/telegram"
+	"nexus-core/internal/messaging/twilio"
 	msgwa "nexus-core/internal/messaging/whatsapp"
 	"nexus-core/internal/nlp"
 )
@@ -29,6 +35,12 @@ func InitProvider(cfg *config.Config) (Provider, error) {
 	// Inyectar el handler centralizado en todos los subpaquetes
 	msgwa.SetHandler(HandleIncomingMessage)
 	telegram.SetHandler(HandleIncomingMessage)
+	discord.SetHandler(HandleIncomingMessage)
+	slack.SetHandler(HandleIncomingMessage)
+	instagram.SetHandler(HandleIncomingMessage)
+	messenger.SetHandler(HandleIncomingMessage)
+	twilio.SetHandler(HandleIncomingMessage)
+	email.SetHandler(HandleIncomingMessage)
 
 	switch cfg.Messaging.Provider {
 	case "telegram":
@@ -43,10 +55,56 @@ func InitProvider(cfg *config.Config) (Provider, error) {
 			VerifyToken:   cfg.Messaging.WhatsApp.Meta.VerifyToken,
 		}, nil
 
+	case "discord":
+		return &discord.DiscordProvider{
+			BotToken: cfg.Messaging.Discord.BotToken,
+			GuildID:  cfg.Messaging.Discord.GuildID,
+		}, nil
+
+	case "slack":
+		return &slack.SlackProvider{
+			BotToken:      cfg.Messaging.Slack.BotToken,
+			AppToken:      cfg.Messaging.Slack.AppToken,
+			SigningSecret: cfg.Messaging.Slack.SigningSecret,
+		}, nil
+
+	case "instagram":
+		return &instagram.InstagramProvider{
+			PageAccessToken: cfg.Messaging.Instagram.PageAccessToken,
+			VerifyToken:     cfg.Messaging.Instagram.VerifyToken,
+			IGID:            cfg.Messaging.Instagram.IGID,
+		}, nil
+
+	case "messenger":
+		return &messenger.MessengerProvider{
+			PageAccessToken: cfg.Messaging.Messenger.PageAccessToken,
+			VerifyToken:     cfg.Messaging.Messenger.VerifyToken,
+			PageID:          cfg.Messaging.Messenger.PageID,
+		}, nil
+
+	case "twilio":
+		return &twilio.TwilioProvider{
+			AccountSID:  cfg.Messaging.Twilio.AccountSID,
+			AuthToken:   cfg.Messaging.Twilio.AuthToken,
+			FromNumber:  cfg.Messaging.Twilio.FromNumber,
+			WebhookPort: cfg.Messaging.Twilio.WebhookPort,
+		}, nil
+
+	case "email":
+		return &email.EmailProvider{
+			IMAPHost:     cfg.Messaging.Email.IMAPHost,
+			IMAPPort:     cfg.Messaging.Email.IMAPPort,
+			SMTPHost:     cfg.Messaging.Email.SMTPHost,
+			SMTPPort:     cfg.Messaging.Email.SMTPPort,
+			User:         cfg.Messaging.Email.User,
+			Password:     cfg.Messaging.Email.Password,
+			PollInterval: cfg.Messaging.Email.PollInterval,
+		}, nil
+
 	case "mau", "":
 		return &msgwa.MauProvider{}, nil
 
 	default:
-		return nil, fmt.Errorf("proveedor de mensajería desconocido: %q (opciones: mau, meta, telegram)", cfg.Messaging.Provider)
+		return nil, fmt.Errorf("proveedor de mensajería desconocido: %q (opciones: mau, meta, telegram, discord, slack, instagram, messenger, twilio, email)", cfg.Messaging.Provider)
 	}
 }

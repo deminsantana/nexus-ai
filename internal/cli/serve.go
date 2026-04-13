@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"nexus-core/internal/api"
 	"nexus-core/internal/config"
 	"nexus-core/internal/database"
 	"nexus-core/internal/messaging"
 	"nexus-core/internal/nlp"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -55,7 +57,20 @@ var serveCmd = &cobra.Command{
 			log.Fatalf("❌ Error iniciando proveedor: %v", err)
 		}
 
-		// 4. BLOQUEO PARA MANTENER EL COMANDO VIVO
+		// 4. Iniciar Servidor API y Webhooks centralizado
+		// Esto permite que el endpoint genérico y los webhooks de Meta/IG funcionen juntos
+		http.HandleFunc("/api/webhook/ai", api.NewAIHandler(brain, cfg))
+
+		port := fmt.Sprintf(":%d", cfg.Server.Port)
+		fmt.Printf("🌐 Servidor HTTP iniciado en puerto %d (API disponible en /api/webhook/ai)\n", cfg.Server.Port)
+
+		go func() {
+			if err := http.ListenAndServe(port, nil); err != nil {
+				fmt.Printf("❌ Error en Servidor HTTP Global: %v\n", err)
+			}
+		}()
+
+		// 5. BLOQUEO PARA MANTENER EL COMANDO VIVO
 		// Escuchamos señales de interrupción del sistema para cerrar elegantemente
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)

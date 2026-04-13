@@ -1,81 +1,102 @@
 # Nexus Core 🚀
 
-## 🤖**Tu Asistente Personal con IA Integrada para WhatsApp**
+## 🤖 Tu Agente de IA Multi-Plataforma
 
-Nexus es un agente de automatización desarrollado en **Go** que actúa como un puente inteligente entre la mensajería en tiempo real y modelos de lenguaje a gran escala (LLM). Este proyecto representa mi **primera incursión integrando IA Generativa** en arquitecturas de software robustas.
+Nexus es un agente de automatización desarrollado en **Go** que actúa como un puente inteligente entre múltiples plataformas de mensajería y modelos de lenguaje a gran escala (LLMs). Conecta **9 plataformas** desde un único binario, gestionado con un simple cambio de línea en `config.yaml`.
+
+---
+
+## 🗺️ Plataformas Soportadas
+
+| Proveedor | Plataforma | Mecanismo | URL pública |
+|---|---|---|---|
+| `mau` | WhatsApp (no-oficial) | WebSocket — whatsmeow | ❌ No |
+| `meta` | WhatsApp Business API | Webhook HTTP | ✅ Sí |
+| `telegram` | Telegram | Long Polling | ❌ No |
+| `discord` | Discord | Gateway WebSocket | ❌ No |
+| `slack` | Slack | Socket Mode | ❌ No |
+| `instagram` | Instagram DM | Meta Graph API Webhook | ✅ Sí |
+| `messenger` | Facebook Messenger | Meta Graph API Webhook | ✅ Sí |
+| `twilio` | SMS | Twilio REST API + Webhook | ✅ Sí (ngrok local) |
+| `email` | Email (IMAP/SMTP) | Polling IMAP | ❌ No |
+| `api` | API Webhook Genérico | HTTP POST (X-Nexus-API-Key) | ✅ Sí |
+
+> **Recomendación para empezar:** `telegram` o `discord` — no requieren URL pública ni configuración de webhooks.
 
 ---
 
 ## 🏗️ Arquitectura Técnica
 
-El sistema se basa en una arquitectura de micro-servicios desacoplados pero integrados mediante un núcleo central en Go:
-
-* **Engine (Go):** Gestiona el ciclo de vida de los eventos de mensajería.
-* **Memoria a Largo Plazo (PostgreSQL):** Almacena sesiones de WhatsApp y el historial de mensajes para análisis posterior.
-* **Memoria de Corto Plazo (Redis):** (En implementación) Utilizada para caché de estados y gestión de contextos rápidos.
-* **Cerebro (Gemini AI):** Procesamiento de Lenguaje Natural (NLP) para resúmenes y respuestas inteligentes.
-
----
-
-## 📚 Teoría para el Desarrollador
-
-### ¿Qué es NLP (Natural Language Processing)?
-
-Es la disciplina que permite a Nexus no solo leer texto, sino extraer intención. Utilizamos modelos de **IA Generativa** para transformar logs de chat desestructurados en resúmenes ejecutivos.
-
-### Event-Driven Architecture (EDA)
-
-Nexus funciona bajo un modelo de eventos. Cada vez que llega un paquete de datos desde los servidores de WhatsApp, se dispara un evento que es capturado, guardado en DB y procesado asíncronamente por el paquete `internal/nlp`.
-
----
-
-### Sistema RAG (Retrieval-Augmented Generation)
-
-Para evitar alucinaciones, Nexus utiliza una Base de Conocimientos indexada en **PostgreSQL** mediante la extensión `pgvector`. Los documentos (ej. un catálogo en Markdown) se dividen en fragmentos, se procesan usando el modelo de incrustaciones de IA (`gemini-embedding-001`) y se inyectan como conocimiento duro. Cada vez que alguien pregunta en el chat, Nexus busca por Similitud de Coseno la respuesta más relevante antes de formular sus palabras.
-
-### Limitador de Tasa (Rate Limiting)
-
-Para proteger a la API de la IA de spam (Denegación de Servicio), la memoria en **Redis** registra los mensajes. Si un cliente de WhatsApp manda más de 10 mensajes repetitivos en un margen de 1 segundo, Nexus los interceptará, alertará al usuario y no desperdiciará capacidad de la IA mitigando gastos imprevistos.
-
----
-
-## 💼 Estrategia SaaS y Modelo de Negocio
-
-Si tu objetivo es comercializar Nexus y venderlo como un servicio automatizado (SaaS) a empresas, clínicas, pizzerías o corporaciones, aquí tienes los pilares de arquitectura de negocio:
-
-### 1. APIs de Mensajería: Mau vs Oficial (¡Múltiples Proveedores Implementados!)
-Para garantizar escalamiento y flexibilidad, Nexus soporta ambas plataformas nativamente a través de la interfaz `whatsapp.Provider`. Puedes alternar dinámicamente entre motores directamente desde tu `config.yaml`:
-
-```yaml
-whatsapp:
-  provider: "meta" # Opciones: "mau" (sockets) o "meta" (HTTP webhooks)
-  meta:
-    token: "EAA..."
-    phone_number_id: "123456789"
-    verify_token: "TUTOKEN"
+```
+┌─────────────────────────────────────────────────────┐
+│                   NEXUS CORE (Go)                    │
+│                                                     │
+│  ┌──────────────┐    ┌──────────────────────────┐   │
+│  │  messaging/  │    │       internal/nlp/      │   │
+│  │  Provider    │───►│  Brain (Gemini / OpenAI) │   │
+│  │  Interface   │    │  + RAG (pgvector)        │   │
+│  └──────┬───────┘    └──────────────────────────┘   │
+│         │                                           │
+│  ┌──────▼──────────────────────────────────────┐    │
+│  │         handler.go (centralizado)           │    │
+│  │  Rate Limit (Redis) → Quota (PostgreSQL)    │    │
+│  │  → ProcessMessageWithContext → sendMsg()    │    │
+│  └─────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────┘
+         │
+    ┌────▼─────┐   ┌──────────┐   ┌──────────────┐
+    │PostgreSQL│   │  Redis   │   │  Gemini /    │
+    │(Historia │   │(Rate Lim.│   │  OpenAI API  │
+    │ + RAG)   │   │ + Cache) │   │              │
+    └──────────┘   └──────────┘   └──────────────┘
 ```
 
-*   **API No Oficial (Mau/whatsmeow):** Ideal para crear prototipos o vender a pequeñas empresas. Al basarse en WebSockets, **no tiene costo por mensaje**. Sin embargo, conlleva riesgo de baneo por Meta si se detecta spam.
-*   **API Oficial (WhatsApp Cloud / Meta):** El estándar de oro para SaaS. Escala infinitamente. Nexus encenderá automáticamente un Servidor Web en tu puerto configurado para recibir los mensajes HTTP desde Meta. **Cero riesgo de baneos** siempre que cumplas sus políticas.
-
-### 2. Estructura de Costos de Meta
-Meta **no cobra por mensaje individual**, sino por **Conversación de 24 horas**. 
-Si el cliente manda un mensaje al bot, se abre una ventana de 24 horas. Durante esa ventana, tu bot puede mandarle 1 o 1,000 mensajes, y **Meta solo te cobrará ~$0.01 USD** (aprox. un céntimo, varía ligeramente por país). Las primeras 1,000 conversaciones de servicio mensuales ¡son gratis!. Tu negocio radica en revender planes mensuales fijos que engloben tus costos de IA y Meta.
-
-### 3. Trackeo de Cuotas y Restricciones Inteligentes (Implementado)
-Nexus posee un protector financiero escrito en **PostgreSQL**. Cada vez que la Inteligencia Artificial formula y envía un mensaje, se actualiza el contador del usuario en la tabla `usage_quotas`. 
-
-**¿Qué pasa cuando se acaba la cuota?**
-Si el usuario excede la cantidad de mensajes asignados (ej. límite default de 1000 mensajes de cortesía), Nexus interceptará silenciosamente los mensajes entrantes y le **responderá un mensaje de alerta automatizado** ("Has alcanzado tu límite..."), garantizando que tus costos de IA (Tokens de Gemini) no operen en pérdida.
+**Flujo de un mensaje:**
+1. El proveedor activo recibe el mensaje (webhook o polling)
+2. `handler.go` valida rate limit (Redis) y cuota (PostgreSQL)
+3. El "Brain" busca contexto en la base de conocimientos RAG (pgvector)
+4. El LLM genera la respuesta con contexto enriquecido
+5. La respuesta se envía de vuelta al canal de origen
 
 ---
 
-## ⚖️ Asesoría Legal sobre Dependencias (Licencias)
+## 📦 Estructura del Proyecto
 
-Todas las librerías incluidas en `go.mod` han sido auditadas. **Conclusión: Estás 100% legal y libre de riesgo financiero o de demanda para comercializar software privado de código cerrado.**
-
-*   **MIT / Apache 2.0 / BSD:** (Usadas en `pgx`, `go-redis`, `cobra`, `generative-ai-go`, `go-openai`). Te permiten usarlas, venderlas y lucrar sin retribuir regalías a los autores ni abrir el código fuente de Nexus.
-*   **MPL-2.0 (Mozilla Public License):** (Usada en `whatsmeow` y `libsignal`). Es amigable para usos comerciales. Tu código de Golang de "Nexus" puede ser ultra secreto y millonario, bajo restricción de que si llegas a modificar deliberadamente *los archivos internos propios de la librería de tulir*, deberás contribuir a la comunidad compartiendo gratuitamente únicamente esa corrección. De lo contrario, puedes operar con todo tu SaaS privado.
+```
+nexus/
+├── cmd/nexus/main.go              # Punto de entrada
+├── config.yaml                    # Tu configuración (en .gitignore)
+├── config.example.yaml            # Plantilla de configuración ← copia esto
+├── internal/
+│   ├── api/                       # API Genérica (Webhook POST)
+│   ├── cli/                       # Comandos CLI (cobra)
+│   │   ├── serve.go               # nexus serve
+│   │   ├── ingest.go              # nexus ingest
+│   │   ├── send.go                # nexus send
+│   │   ├── status.go              # nexus status
+│   │   └── summarize.go           # nexus summarize
+│   ├── config/config.go           # Structs de configuración YAML
+│   ├── database/                  # Migraciones y queries PostgreSQL
+│   ├── messaging/
+│   │   ├── provider.go            # Registro y factory de proveedores
+│   │   ├── handler.go             # Handler centralizado (rate limit + cuota + IA)
+│   │   ├── whatsapp/
+│   │   │   ├── mau.go             # WhatsApp no-oficial (whatsmeow)
+│   │   │   └── meta.go            # WhatsApp Business API
+│   │   ├── telegram/telegram.go   # Bot de Telegram
+│   │   ├── discord/discord.go     # Bot de Discord
+│   │   ├── slack/slack.go         # App de Slack (Socket Mode)
+│   │   ├── instagram/instagram.go # Instagram DM
+│   │   ├── messenger/messenger.go # Facebook Messenger
+│   │   ├── twilio/twilio.go       # SMS via Twilio
+│   │   └── email/email.go         # IMAP/SMTP
+│   └── nlp/
+│       ├── brain.go               # Orquestador principal de IA
+│       ├── gemini.go              # Proveedor Google Gemini
+│       ├── openai.go              # Proveedor OpenAI
+│       └── rag.go                 # Sistema RAG con pgvector
+└── knowledge/                     # Archivos .md para ingestar en RAG
+```
 
 ---
 
@@ -84,79 +105,381 @@ Todas las librerías incluidas en `go.mod` han sido auditadas. **Conclusión: Es
 ### Requisitos
 
 - **Go 1.21+**
-- **Docker** (para Postgres y Redis en WSL, recomendamos la imagen `pgvector/pgvector:pg16` para la carga vectorial).
-- **API Key** de Google AI Studio (Gemini)
+- **Docker** (para PostgreSQL con pgvector y Redis)
+- **API Key** de [Google AI Studio](https://aistudio.google.com/app/apikey) o OpenAI
 
-### Comandos Principales
+### 1. Clonar y configurar
 
-1. **Verificar y Operar Servicios:**
-   ```bash
-   nexus status      # Verifica la IA y la Base de Datos
-   nexus ingest      # Lee un .md y carga la base de conocimientos RAG
-   nexus serve       # Enciende al bot en WhatsApp
-   nexus help-me     # Muestra ayuda interactiva
-   nexus send        # Dispara un mensaje manual
-   nexus summarize   # Resume la charla reciente
+```bash
+git clone https://github.com/tu-usuario/nexus.git
+cd nexus
+
+# Copiar la plantilla de configuración
+cp config.example.yaml config.yaml
+
+# Editar con tus credenciales
+# Cambia messaging.provider al canal que quieras usar
+notepad config.yaml  # o tu editor preferido
+```
+
+### 2. Levantar infraestructura con Docker
+
+```bash
+docker-compose up -d
+```
+
+El `docker-compose.yml` levanta PostgreSQL (con pgvector) y Redis.
+
+### 3. Compilar y ejecutar
+
+```bash
+# Compilar
+go build -o nexus.exe ./cmd/nexus
+
+# Encender Nexus
+./nexus serve
+```
+
+### Comandos disponibles
+
+```bash
+nexus serve       # Inicia el agente en la plataforma configurada
+nexus status      # Verifica conexión con IA y base de datos
+nexus ingest      # Carga un archivo .md a la base de conocimientos RAG
+nexus send        # Envía un mensaje manual desde la CLI
+nexus summarize   # Resume la conversación reciente
+nexus help-me     # Ayuda interactiva
+```
+
+---
+
+## 🌐 API Genérica (Webhook de IA)
+
+Nexus ofrece un endpoint universal para que cualquier aplicación externa (Web, Mobile, CRM) pueda consumir su inteligencia de forma segura.
+
+### Endpoint
+`POST /api/webhook/ai`
+
+### Seguridad (API Key)
+Debes incluir el siguiente header en tu petición:
+`X-Nexus-API-Key: <tu_api_key_configurado>`
+
+### Formato de Petición (JSON)
+```json
+{
+  "user_id": "usuario_123",
+  "message": "Hola Nexus, ¿cuál es el estado de mi pedido?"
+}
+```
+
+### Formato de Respuesta (JSON)
+```json
+{
+  "reply": "Respuesta procesada con RAG y memoria...",
+  "session_id": "usuario_123"
+}
+```
+
+---
+
+## ⚙️ Configuración Global y por Plataforma
+
+Copia `config.example.yaml` como `config.yaml` y configura la sección del proveedor que necesites.
+
+### Configuración del Servidor y API Key
+```yaml
+server:
+  port: 18789
+  api_key: "tu_token_secreto_aquí" # Requerido para /api/webhook/ai
+```
+
+### 🔵 Telegram (recomendado para empezar)
+
+No requiere URL pública. Usa Long Polling.
+
+```yaml
+messaging:
+  provider: "telegram"
+  telegram:
+    bot_token: "1234567890:AAFxxxxxxxxxxxxxxxxxxx"
+```
+
+**Cómo obtener el token:**
+1. Abre Telegram → busca **@BotFather**
+2. Envía `/newbot` → elige nombre y @username
+3. Copia el token que te entrega
+
+---
+
+### 🟣 Discord (sin URL pública)
+
+Usa Gateway WebSocket. El bot responde en cualquier canal donde tenga permisos.
+
+```yaml
+messaging:
+  provider: "discord"
+  discord:
+    bot_token: "TU_TOKEN"
+    guild_id: ""   # Opcional: limita a un servidor
+```
+
+**Cómo obtener el token:**
+1. [discord.com/developers](https://discord.com/developers/applications) → **New Application**
+2. Sección **Bot** → **Reset Token** → copia el token
+3. Activa **Message Content Intent** (Bot → Privileged Gateway Intents)
+4. Invita el bot:
+   ```
+   https://discord.com/oauth2/authorize?client_id=TU_APP_ID&permissions=2048&scope=bot
    ```
 
 ---
 
-## ☁️ Arquitectura de Despliegue SaaS para Nexus
+### 🟡 Slack — Socket Mode (sin URL pública)
 
-Vender Nexus como un SaaS (Software as a Service) a múltiples clientes (clínicas, pizzerías, empresas) requiere una estrategia de despliegue clara. Debido a que el software está escrito en **Go (Golang)**, tienes una ventaja técnica enorme: los binarios de Go son extremadamente rápidos y consumen poquísima memoria.
+Socket Mode establece un WebSocket saliente: no necesitas abrir puertos.
 
-A continuación, presento los dos enfoques principales para escalar tu negocio, el consumo esperado y la arquitectura en contenedores.
+```yaml
+messaging:
+  provider: "slack"
+  slack:
+    bot_token: "xoxb-..."
+    app_token: "xapp-..."
+    signing_secret: "..."
+```
+
+**Cómo configurar:**
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch
+2. **Socket Mode** → Enable → genera **App-Level Token** (`xapp-...`)
+3. **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `im:read`, `im:history`, `channels:history`, `users:read`
+4. **Event Subscriptions** → Subscribe to bot events: `message.im`, `message.channels`
+5. **Install to Workspace** → copia el **Bot User OAuth Token** (`xoxb-...`)
+
+---
+
+### 🟢 WhatsApp Mau (no-oficial)
+
+```yaml
+messaging:
+  provider: "mau"
+  # No requiere configuración extra
+```
+
+Al ejecutar `nexus serve` se mostrará un código QR para vincularlo con tu WhatsApp.
+
+> ⚠️ Uso no oficial. Riesgo de baneo si se detecta uso masivo de spam.
+
+---
+
+### ⚪ WhatsApp Business API — Meta (oficial)
+
+Requiere URL pública (o ngrok para desarrollo).
+
+```yaml
+messaging:
+  provider: "meta"
+  whatsapp:
+    meta:
+      token: "EAAN..."
+      phone_number_id: "123456789"
+      verify_token: "mi_verify_token"
+```
+
+**Webhook endpoint:** `POST /webhook`
+
+---
+
+### 🟠 Instagram DM
+
+Requiere cuenta **Instagram Business o Creator** vinculada a una Página de Facebook.
+
+```yaml
+messaging:
+  provider: "instagram"
+  instagram:
+    page_access_token: "TU_TOKEN"
+    verify_token: "nexus_instagram_verify"
+    ig_id: "TU_INSTAGRAM_BUSINESS_ID"   # ID numérico, no el @username
+```
+
+**Permisos necesarios:** `instagram_manage_messages`, `instagram_basic`, `pages_show_list`
+**Webhook endpoint:** `GET|POST /webhook/instagram`
+
+---
+
+### 🔵 Facebook Messenger
+
+```yaml
+messaging:
+  provider: "messenger"
+  messenger:
+    page_access_token: "TU_TOKEN"
+    verify_token: "nexus_messenger_verify"
+    page_id: "TU_PAGE_ID"
+```
+
+**Permisos necesarios:** `pages_messaging`, `pages_read_engagement`
+**Webhook endpoint:** `GET|POST /webhook/messenger`
+
+---
+
+### 📱 Twilio SMS
+
+Nexus levanta un servidor HTTP en `webhook_port` para recibir los SMS entrantes de Twilio.
+
+```yaml
+messaging:
+  provider: "twilio"
+  twilio:
+    account_sid: "ACxxxxxxxxxxxxxxxx"
+    auth_token: "TU_AUTH_TOKEN"
+    from_number: "+1XXXXXXXXXX"   # Formato E.164
+    webhook_port: 18790
+```
+
+**Para desarrollo local, expón el puerto con ngrok:**
+```bash
+ngrok http 18790
+# Luego configura la URL en Twilio Console →
+# Phone Numbers → Messaging → Webhook URL → https://xxxx.ngrok.io/webhook/sms
+```
+
+---
+
+### 📧 Email (IMAP + SMTP)
+
+El bot revisa el inbox cada N segundos buscando correos no leídos. Funciona con Gmail, Outlook, Zoho o cualquier proveedor IMAP estándar.
+
+```yaml
+messaging:
+  provider: "email"
+  email:
+    imap_host: "imap.gmail.com"
+    imap_port: 993
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    user: "tu_correo@gmail.com"
+    password: "xxxx xxxx xxxx xxxx"   # App Password
+    poll_interval_seconds: 30
+```
+
+**Para Gmail:** activa **App Passwords** en `myaccount.google.com → Security → App passwords`.
+
+---
+
+## 🧠 Sistema RAG (Retrieval-Augmented Generation)
+
+Para evitar alucinaciones, Nexus usa una base de conocimientos vectorial en PostgreSQL mediante `pgvector`. Los documentos se dividen en fragmentos, se procesan con el modelo de embeddings de IA y se almacenan para búsqueda por similitud de coseno.
+
+```bash
+# Ingesta tu base de conocimientos (acepta archivos Markdown)
+nexus ingest --file knowledge/catalogo.md
+nexus ingest --file knowledge/faq.md
+```
+
+Cada vez que llega un mensaje, Nexus recupera automáticamente los fragmentos más relevantes antes de formular la respuesta.
+
+---
+
+## 🛡️ Rate Limiting y Cuotas
+
+### Rate Limit (Redis)
+Protege la API de IA contra spam. Límite configurable de mensajes por segundo por usuario. Si se supera, Nexus responde automáticamente con una advertencia y descarta la solicitud.
+
+### Cuotas Mensuales (PostgreSQL)
+Cada usuario tiene un contador de mensajes procesados. Al superar el límite asignado, Nexus responde con un mensaje de alerta personalizado y deja de consumir tokens de IA, protegiendo tus costos.
+
+---
+
+## 🤖 Cómo hablar con Nexus
+
+En todas las plataformas, el agente responde a mensajes que comiencen con la palabra clave **`nexus`**:
+
+```
+nexus ¿cuáles son los horarios de atención?
+nexus necesito información sobre el producto X
+nexus resumen de las últimas conversaciones
+```
+
+---
+
+## 💼 Arquitectura SaaS y Modelo de Negocio
+
+### Estructura de Costos
+
+**Meta WhatsApp:** No cobra por mensaje individual, sino por conversación de 24 horas (~$0.01 USD). Las primeras 1,000 conversaciones de servicio mensuales son gratuitas.
+
+**Google Gemini:** Tiene un free tier generoso. Para producción, los costos escalan con el volumen de tokens.
+
+**Twilio SMS:** ~$0.0075 USD por SMS enviado/recibido en EE.UU. Varía por país.
 
 ### Enfoque 1: Single-Tenant (Un Contenedor por Cliente)
-*Esta es la arquitectura compatible con la versión actual de tu código.*
 
-En este modelo, despliegas un contenedor de Docker aislado para cada cliente. Cada contenedor de Nexus tiene su propio archivo `config.yaml` cargado con el Token de Meta y el Prompt de ese cliente.
+*Arquitectura actual — recomendada para 0 a 50 clientes.*
 
-#### Arquitectura en el VPS:
-- **1 Contenedor Postgres:** Centralizado. Alojas múltiples bases de datos lógicas (ej. `db_cliente1`, `db_cliente2`) dentro del mismo servidor Postgres.
-- **1 Contenedor Redis:** Centralizado. Gestiona la caché de todos los clientes usando prefijos diferentes de llaves.
-- **N Contenedores Nexus:** Uno por cada cliente que pague la suscripción.
+Un contenedor Docker aislado por cliente. Cada uno tiene su propio `config.yaml` con su token y prompt de IA.
 
-#### Escalabilidad (¿Cuántos clientes por VPS?)
-Un binario de Go de esta naturaleza consume en reposo entre **15 MB y 30 MB de RAM**. Si consideramos un VPS estándar de **$10 a $20 USD mensuales (con 4 GB de RAM y 2 vCPUs)**:
-- Podrías alojar fácilmente entre **40 y 60 contenedores Nexus (clientes)** de forma simultánea.
-- El límite no será el CPU, sino la RAM asignada y los límites de conexiones de la base de datos Postgres.
+```
+VPS ($20 USD/mes — 4 GB RAM, 2 vCPUs)
+├── nexus-cliente-A (15-30 MB RAM)
+├── nexus-cliente-B (15-30 MB RAM)
+├── ... × 40-60 clientes
+├── postgres (centralizado, múltiples DBs)
+└── redis (centralizado, prefijos por cliente)
+```
 
-#### ¿Cómo se escala?
-Cuando llegues a los ~50 clientes y la RAM de tu VPS esté al 80%, aplicas "Escalamiento Horizontal":
-1. Alquilas un **VPS #2** (Worker).
-2. Instalás Docker.
-3. Despliegas los clientes 51 al 100 en los contenedores de ese VPS, pero conectándolos (a través de la red) a la base de datos principal o a una réplica.
+Para escalar: agrega un VPS #2 y conecta los nuevos contenedores a la DB central.
 
----
+### Enfoque 2: Multi-Tenant (Un Proceso para Todos)
 
-### Enfoque 2: True Multi-Tenant (El Santo Grial del SaaS)
-*Requiere una refactorización considerable del código actual.*
+*Requiere refactorización — recomendado para 50+ clientes.*
 
-En este modelo, en lugar de arrancar un contenedor por cliente, **el mismo contenedor de Nexus procese a miles de clientes al mismo tiempo**. 
+Un único binario Nexus gestiona miles de clientes. El `phone_number_id` (o equivalente en cada plataforma) identifica al cliente en la DB, que almacena su token y prompt de IA.
 
-#### ¿Cómo funciona con Meta API?
-1. En tu App de Meta Developers, configuras **una única URL de Webhook** (ej. `api.tuservicio.com/webhook`).
-2. Agregas los números de WhatsApp de los 1000 clientes a tu App de Meta.
-3. Cuando llega un mensaje, el JSON de Meta incluye el `phone_number_id` (el número del cliente que recibió el mensaje).
-4. Nexus captura el mensaje, **busca ese ID en la tabla de PostgreSQL (`integrations`)**, recupera en memoria caliente (Redis) el Token y el Prompt de IA de ese número, le envía la conversación a Gemini, y contesta.
+```
+VPS (con Load Balancer)
+├── nexus (1 proceso — miles de clientes)
+├── postgres (multi-tenant)
+└── redis
+```
 
-#### Arquitectura en el VPS:
-- **1 Contenedor Postgres:** Base de datos multi-inquilino.
-- **1 Contenedor Redis:** Para caché, rate limits y manejo de estado.
-- **1 Contenedor Nexus (API Central):** Un único binario de Go.
-
-#### Escalabilidad (¿Cuántos clientes por VPS?)
-Con un diseño Multi-Tenant, un servidor Go puede manejar miles de conexiones concurrentes por segundo. En el mismo VPS de **4 GB de RAM ($20 USD/mes)**:
-- Podrías escalar hasta **200, 500 o incluso 1000 clientes** de mediano volumen.
-- Aquí los cuellos de botella son el disco (I/O) de Postgres y los límites de solicitud de API (Quotas) impuestos por la API de Google Gemini (AI Studio).
-
-Al requerir más poder, puedes montar un *Load Balancer* (Nginx/Traefik) frente a 3 contenedores Nexus operando sobre la misma base de datos, logrando escalabilidad global.
+> **Estrategia recomendada:**
+> - **Fase 1 (0–30 clientes):** Single-Tenant. Más seguro para validar el modelo de negocio.
+> - **Fase 2 (+50 clientes):** Migrar a Multi-Tenant para eliminar la gestión de N contenedores.
 
 ---
 
-### Recomendación Estratégica
+## ⚖️ Licencias de Dependencias
 
-> **Fase 1 (0 a 30 clientes):** Utiliza el **Enfoque Single-Tenant**. Es más seguro aislar a los clientes mientras validas tu modelo de negocio; si un contenedor de un cliente "cae" o comete un error crítico, los otros 29 clientes no se enteran de nada. Mapea distintos puertos (ej: `:18001`, `:18002`, etc.) en tu VPS para los webhooks, o usa un proxy invertido (Nginx) para enrutarlos según las rutas (`/cliente1/webhook`).
-> 
-> **Fase 2 (+50 clientes):** El nivel logístico de usar `docker-compose.yaml` u Orquestadores con decenas de configuraciones se volverá una pesadilla. En este punto, inviertes capital en transformar el código a **True Multi-Tenant** y pasas toda la configuración empresarial a PostgreSQL.
+Todas las librerías han sido auditadas. **Puedes comercializar Nexus sin restricciones.**
+
+| Librería | Licencia | Uso comercial |
+|---|---|---|
+| `pgx`, `go-redis`, `cobra` | MIT / Apache 2.0 | ✅ Sin restricciones |
+| `generative-ai-go`, `go-openai` | Apache 2.0 | ✅ Sin restricciones |
+| `discordgo` | BSD 3-Clause | ✅ Sin restricciones |
+| `slack-go` | BSD 2-Clause | ✅ Sin restricciones |
+| `twilio-go` | MIT | ✅ Sin restricciones |
+| `go-imap` | MIT | ✅ Sin restricciones |
+| `telebot.v3` | MIT | ✅ Sin restricciones |
+| `whatsmeow`, `libsignal` | MPL-2.0 | ✅ Código Nexus puede ser privado* |
+
+> *MPL-2.0: Solo debes compartir modificaciones directas a los archivos de la librería. Tu código de Nexus puede ser completamente privado y comercial.
+
+---
+
+## 🔧 Agregar un Nuevo Proveedor
+
+La arquitectura usa una interfaz `Provider` que facilita extender el sistema. Para agregar una nueva plataforma:
+
+1. Crea el paquete en `internal/messaging/<nombre>/<nombre>.go`
+2. Implementa la interfaz:
+   ```go
+   type Provider interface {
+       Start(cfg *config.Config, dbDSN string, db *sql.DB, brain *nlp.Brain) error
+       SendMessage(target string, text string) error
+   }
+   ```
+3. Añade `SetHandler()` para inyectar el handler centralizado
+4. Registra el nuevo caso en `provider.go`
+5. Añade el struct de configuración en `config.go`
+6. Agrega la sección en `config.example.yaml`

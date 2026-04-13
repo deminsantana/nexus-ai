@@ -1,0 +1,184 @@
+server:
+  port: 18789
+  api_key: "tu_token_secreto_aqui"
+
+# ============================================================
+#  NEXUS — CONFIGURACIÓN MULTI-PLATAFORMA
+#
+#  1. Copia este archivo: cp config.example.yaml config.yaml
+#  2. Elige tu proveedor cambiando el valor de 'provider'
+#  3. Rellena SOLO las credenciales del proveedor elegido
+#  4. Nunca subas config.yaml al repositorio (ya está en .gitignore)
+# ============================================================
+
+messaging:
+  # Activa el proveedor deseado cambiando este valor:
+  #   "mau"       → WhatsApp no-oficial (whatsmeow)  — sin URL pública
+  #   "meta"      → WhatsApp Business API de Meta     — requiere URL pública
+  #   "telegram"  → Bot de Telegram                   — sin URL pública ✅ recomendado para probar
+  #   "discord"   → Bot de Discord                    — sin URL pública ✅
+  #   "slack"     → App de Slack (Socket Mode)        — sin URL pública ✅
+  #   "instagram" → Instagram DM (Meta Graph API)     — requiere URL pública
+  #   "messenger" → Facebook Messenger (Meta Graph)   — requiere URL pública
+  #   "twilio"    → SMS via Twilio                    — requiere URL pública (o ngrok)
+  #   "email"     → Correo electrónico IMAP/SMTP      — sin URL pública ✅
+  provider: "telegram"
+
+  # ─────────────────────────────────────────────
+  # WhatsApp Mau (no-oficial via whatsmeow)
+  # No requiere configuración adicional.
+  # Al ejecutar 'nexus serve', se mostrará un QR para escanear.
+  # ─────────────────────────────────────────────
+
+  # ─────────────────────────────────────────────
+  # WhatsApp Business API — Meta (oficial)
+  # Guía: https://developers.facebook.com/docs/whatsapp/cloud-api
+  # 1. Crea una App en Meta Developers → Add Product → WhatsApp
+  # 2. Genera un token de acceso permanente
+  # 3. Anota el Phone Number ID de tu número de prueba
+  # 4. En Webhook apunta a: http://TU_IP:18789/webhook
+  # ─────────────────────────────────────────────
+  whatsapp:
+    meta:
+      token: "EAAN_TU_TOKEN_DE_META"
+      phone_number_id: "TU_PHONE_NUMBER_ID"
+      verify_token: "TU_VERIFY_TOKEN_PERSONALIZADO"
+
+  # ─────────────────────────────────────────────
+  # Telegram Bot
+  # 1. Abre Telegram → busca @BotFather
+  # 2. Envía: /newbot → elige nombre y @username
+  # 3. Copia el token que te entrega BotFather
+  # ─────────────────────────────────────────────
+  telegram:
+    bot_token: "1234567890:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+  # ─────────────────────────────────────────────
+  # Discord Bot (Gateway WebSocket — sin URL pública)
+  # 1. https://discord.com/developers/applications → New Application
+  # 2. Bot → Reset Token → copia el token
+  # 3. Bot → Privileged Gateway Intents → activa "Message Content Intent"
+  # 4. Invita con: https://discord.com/oauth2/authorize
+  #    ?client_id=TU_APP_ID&permissions=2048&scope=bot
+  # ─────────────────────────────────────────────
+  discord:
+    bot_token: "TU_DISCORD_BOT_TOKEN"
+    guild_id: ""   # Opcional: limita el bot a un servidor específico
+
+  # ─────────────────────────────────────────────
+  # Slack App — Socket Mode (sin URL pública)
+  # 1. https://api.slack.com/apps → Create New App → From scratch
+  # 2. Socket Mode → Enable → genera App-Level Token (xapp-...)
+  # 3. OAuth & Permissions → Bot Token Scopes:
+  #    chat:write, im:read, im:history, channels:history, users:read
+  # 4. Event Subscriptions → Subscribe to bot events:
+  #    message.im, message.channels, message.groups
+  # 5. Install to Workspace → copia Bot User OAuth Token (xoxb-...)
+  # ─────────────────────────────────────────────
+  slack:
+    bot_token: "xoxb-TU_SLACK_BOT_TOKEN"
+    app_token: "xapp-TU_SLACK_APP_TOKEN"
+    signing_secret: "TU_SLACK_SIGNING_SECRET"
+
+  # ─────────────────────────────────────────────
+  # Instagram DM — Meta Graph API
+  # REQUISITO: Cuenta Instagram Business/Creator + Página de Facebook vinculada
+  # 1. Meta Developers → App → Add Product → Messenger (incluye Instagram)
+  # 2. Permisos requeridos:
+  #    instagram_manage_messages, instagram_basic, pages_show_list
+  # 3. Webhook → /webhook/instagram | Verify Token debe coincidir con verify_token
+  # 4. ig_id: Es el ID numérico de tu Instagram Business Account
+  #    (no es el @username, búscalo en Meta Business Suite)
+  # ─────────────────────────────────────────────
+  instagram:
+    page_access_token: "TU_PAGE_ACCESS_TOKEN"
+    verify_token: "nexus_instagram_verify"
+    ig_id: "TU_INSTAGRAM_BUSINESS_ID"
+
+  # ─────────────────────────────────────────────
+  # Facebook Messenger — Meta Graph API
+  # 1. Meta Developers → App → Add Product → Messenger
+  # 2. Permisos requeridos: pages_messaging, pages_read_engagement
+  # 3. Webhook → /webhook/messenger | Verify Token debe coincidir
+  # 4. page_id: ID numérico de tu Página de Facebook
+  # ─────────────────────────────────────────────
+  messenger:
+    page_access_token: "TU_PAGE_ACCESS_TOKEN"
+    verify_token: "nexus_messenger_verify"
+    page_id: "TU_FACEBOOK_PAGE_ID"
+
+  # ─────────────────────────────────────────────
+  # Twilio SMS
+  # 1. Crea cuenta en https://www.twilio.com (tiene trial gratuito)
+  # 2. Console → compra un número con capacidad SMS
+  # 3. Dashboard principal → copia Account SID y Auth Token
+  # 4. Phone Numbers → Manage → Active Numbers → tu número
+  #    → Messaging Configuration → Webhook URL:
+  #    http://TU_IP:18790/webhook/sms
+  #    (Para local, expón con: ngrok http 18790)
+  # ─────────────────────────────────────────────
+  twilio:
+    account_sid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    auth_token: "TU_TWILIO_AUTH_TOKEN"
+    from_number: "+1XXXXXXXXXX"   # Formato E.164
+    webhook_port: 18790           # Puerto independiente del servidor principal
+
+  # ─────────────────────────────────────────────
+  # Email — IMAP (recepción) + SMTP (respuesta)
+  # Compatible con Gmail, Outlook, Zoho, cualquier proveedor estándar.
+  #
+  # Para Gmail:
+  #   1. Activa verificación en 2 pasos en tu cuenta Google
+  #   2. myaccount.google.com → Security → App passwords
+  #   3. Genera una contraseña de aplicación y úsala en 'password'
+  #
+  # El bot revisa el INBOX cada 'poll_interval_seconds' segundos
+  # y procesa solo los correos NO LEÍDOS.
+  # ─────────────────────────────────────────────
+  email:
+    imap_host: "imap.gmail.com"
+    imap_port: 993
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    user: "tu_correo@gmail.com"
+    password: "xxxx xxxx xxxx xxxx"   # App Password de Google
+    poll_interval_seconds: 30
+
+# ============================================================
+# BASE DE DATOS — PostgreSQL
+# Requiere extensión pgvector para el sistema RAG.
+# Docker: docker run -p 5432:5432 -e POSTGRES_PASSWORD=secret pgvector/pgvector:pg16
+# ============================================================
+database:
+  host: "127.0.0.1"
+  port: 5432
+  user: "postgres"
+  pass: "TU_PASSWORD_DB"
+  name: "nexus_db"
+  sslmode: "disable"
+
+# ============================================================
+# CACHÉ — Redis
+# Docker: docker run -p 6379:6379 redis:7-alpine
+# ============================================================
+redis:
+  host: "127.0.0.1"
+  port: 6379
+
+# ============================================================
+# INTELIGENCIA ARTIFICIAL
+# Opción A — Google Gemini (recomendado, tiene free tier generoso)
+#   API Key: https://aistudio.google.com/app/apikey
+#
+# Opción B — OpenAI (descomenta la sección de abajo)
+#   API Key: https://platform.openai.com/api-keys
+# ============================================================
+ai:
+  provider: "google"
+  api_key: "TU_GOOGLE_AI_API_KEY"
+  model: "gemini-2.5-flash"
+
+# ai:
+#   provider: "openai"
+#   api_key: "sk-..."
+#   model: "gpt-4o"
