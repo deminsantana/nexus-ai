@@ -1,12 +1,12 @@
 # Nexus Core 🚀
 
-## 🤖 Tu Agente de IA Multi-Plataforma
+## 🤖 Tu Agente de IA Multi-Plataforma con Voz y Ventas
 
-Nexus es un agente de automatización desarrollado en **Go** que actúa como un puente inteligente entre múltiples plataformas de mensajería y modelos de lenguaje a gran escala (LLMs). Conecta **9 plataformas** desde un único binario, gestionado con un simple cambio de línea en `config.yaml`.
+Nexus es un agente de automatización desarrollado en **Go** que actúa como puente inteligente entre múltiples plataformas de mensajería y modelos de lenguaje (LLMs). Conecta **9 plataformas** desde un único binario, con capacidades de **voz (TTS/STT)**, **llamadas programadas** y un **agente de ventas con máquina de estados**.
 
 ---
 
-## 🗺️ Plataformas Soportadas
+## 🗺️ Plataformas de Mensajería
 
 | Proveedor | Plataforma | Mecanismo | URL pública |
 |---|---|---|---|
@@ -17,46 +17,421 @@ Nexus es un agente de automatización desarrollado en **Go** que actúa como un 
 | `slack` | Slack | Socket Mode | ❌ No |
 | `instagram` | Instagram DM | Meta Graph API Webhook | ✅ Sí |
 | `messenger` | Facebook Messenger | Meta Graph API Webhook | ✅ Sí |
-| `twilio` | SMS | Twilio REST API + Webhook | ✅ Sí (ngrok local) |
+| `twilio` | SMS | Twilio REST API + Webhook | ✅ Sí |
 | `email` | Email (IMAP/SMTP) | Polling IMAP | ❌ No |
 | `api` | API Webhook Genérico | HTTP POST (X-Nexus-API-Key) | ✅ Sí |
 
-> **Recomendación para empezar:** `telegram` o `discord` — no requieren URL pública ni configuración de webhooks.
+> **Recomendación para empezar:** `telegram` — no requiere URL pública.
 
 ---
 
-## 🏗️ Arquitectura Técnica
+## 🏗️ Arquitectura General
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   NEXUS CORE (Go)                    │
-│                                                     │
-│  ┌──────────────┐    ┌──────────────────────────┐   │
-│  │  messaging/  │    │       internal/nlp/      │   │
-│  │  Provider    │───►│  Brain (Gemini / OpenAI) │   │
-│  │  Interface   │    │  + RAG (pgvector)        │   │
-│  └──────┬───────┘    └──────────────────────────┘   │
-│         │                                           │
-│  ┌──────▼──────────────────────────────────────┐    │
-│  │         handler.go (centralizado)           │    │
-│  │  Rate Limit (Redis) → Quota (PostgreSQL)    │    │
-│  │  → ProcessMessageWithContext → sendMsg()    │    │
-│  └─────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        NEXUS CORE (Go)                           │
+│                                                                  │
+│  ┌─────────────────┐   ┌──────────────────────────────────────┐  │
+│  │  messaging/     │   │           internal/nlp/              │  │
+│  │  Provider       │──►│  Brain (Gemini / OpenAI)             │  │
+│  │  Interface      │   │  + RAG (pgvector) + STT              │  │
+│  └────────┬────────┘   └──────────────────────────────────────┘  │
+│           │                                                      │
+│  ┌────────▼──────────────────────────────────────────────────┐   │
+│  │              messaging/handler.go (centralizado)          │   │
+│  │                                                           │   │
+│  │   ¿sales_agent.enabled?                                   │   │
+│  │     ├── SÍ → agent/SalesAgent.ProcessWithFSM()           │   │
+│  │     └── NO → trigger "nexus" → Brain.ProcessWithContext() │   │
+│  │                                                           │   │
+│  │   Rate Limit (Redis) → Quota (PostgreSQL) → sendMsg()    │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────────┐  │
+│  │  internal/agent/ │  │internal/voice/│  │internal/scheduler│  │
+│  │  FSM de Ventas   │  │  TTS / Calls  │  │  Cron Jobs       │  │
+│  │  (Redis State)   │  │  (Twilio/GCP) │  │  (robfig/cron)   │  │
+│  └──────────────────┘  └───────────────┘  └──────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
          │
-    ┌────▼─────┐   ┌──────────┐   ┌──────────────┐
-    │PostgreSQL│   │  Redis   │   │  Gemini /    │
-    │(Historia │   │(Rate Lim.│   │  OpenAI API  │
-    │ + RAG)   │   │ + Cache) │   │              │
-    └──────────┘   └──────────┘   └──────────────┘
+    ┌────▼──────┐   ┌──────────┐   ┌──────────────┐
+    │PostgreSQL │   │  Redis   │   │  Gemini /    │
+    │(Historia  │   │(Rate Lim.│   │  OpenAI API  │
+    │ + RAG)    │   │ + Estado)│   │              │
+    └───────────┘   └──────────┘   └──────────────┘
 ```
 
-**Flujo de un mensaje:**
-1. El proveedor activo recibe el mensaje (webhook o polling)
-2. `handler.go` valida rate limit (Redis) y cuota (PostgreSQL)
-3. El "Brain" busca contexto en la base de conocimientos RAG (pgvector)
-4. El LLM genera la respuesta con contexto enriquecido
-5. La respuesta se envía de vuelta al canal de origen
+---
+
+## 🎙️ Voice Agent — TTS y STT
+
+### ¿Qué es TTS y STT?
+
+| Sigla | Significado | En Nexus |
+|-------|-------------|----------|
+| **TTS** | Text-To-Speech — convierte texto en audio hablado | Nexus genera audio MP3 u OGG desde su respuesta |
+| **STT** | Speech-To-Text — transcribe audio a texto | Nexus entiende notas de voz enviadas por el usuario |
+| **TwiML** | Twilio Markup Language — XML que controla llamadas | Dice a Twilio qué decir en una llamada |
+
+### Proveedores de Voz
+
+```
+                    ┌─────────────────────────────────┐
+                    │       voice/provider.go          │
+                    │   Interfaz VoiceProvider         │
+                    └──────────────┬──────────────────┘
+                                   │
+               ┌───────────────────┼───────────────────┐
+               ▼                   ▼                   ▼
+   ┌───────────────────┐ ┌─────────────────┐  ┌──────────────┐
+   │  voice/twilio/    │ │ voice/google/   │  │    "none"    │
+   │  Llamadas reales  │ │ Audio MP3/OGG   │  │  Desactivado │
+   │  outbound (TwiML) │ │ (Cloud TTS API) │  │  (default)   │
+   └───────────────────┘ └─────────────────┘  └──────────────┘
+           │                     │
+    Twilio Voice API      Google Cloud TTS
+    Voz: Polly.Lupe        Voz: es-ES-Standard-A
+    (Amazon Polly TTS)     (WaveNet opcional)
+```
+
+### Flujo: Llamada Outbound con Twilio
+
+```
+nexus serve
+    │
+    ├── Scheduler activa job "call" (cron)
+    │       │
+    │       ▼
+    │   voice/twilio.MakeCall("+584121234567", "Hola, te recuerdo tu cita...")
+    │       │
+    │       ▼
+    │   Twilio API: CreateCall
+    │       │
+    │       ▼
+    │   Twilio llama al número destino
+    │       │
+    │       ▼
+    │   Usuario contesta ← TwiML: <Say voice="Polly.Lupe">Hola, te recuerdo...</Say>
+    │       │
+    └── Log: 📞 Llamada iniciada → +584121234567 | SID: CAxxxx
+```
+
+### Flujo: STT — Nota de voz → IA → Respuesta texto
+
+```
+Usuario envía nota de voz (OGG/Opus)
+    │
+    ▼
+WhatsApp/Telegram entrega audio bytes
+    │
+    ▼
+nlp/gemini.ProcessAudio(data, "audio/ogg")
+    │  Prompt: "Transcribe el audio y responde"
+    ▼
+Gemini Vision/Audio API
+    │
+    ▼
+[Transcripción] | [Respuesta de la IA]
+    │
+    ▼
+sendMsg(senderID, respuesta)
+```
+
+### Configuración de Voz
+
+```yaml
+voice:
+  provider: "twilio"       # twilio | google | none
+
+  twilio:
+    account_sid: "ACxxxx"
+    auth_token: "xxxx"
+    from_number: "+1XXXXXXXXXX"
+    twiml_bin_url: "https://handler.twilio.com/twiml/XXXX"
+    # Si twiml_bin_url está vacío, Nexus sirve /voice/twiml localmente
+
+  google:
+    credentials_file: "gcp-key.json"
+    language: "es-ES"
+    voice_name: "es-ES-Standard-A"
+```
+
+**Cómo crear un TwiML Bin en Twilio:**
+1. Ve a [twilio.com/console/twiml-bins](https://www.twilio.com/console/twiml-bins)
+2. Crea uno con este contenido:
+   ```xml
+   <Response>
+     <Say language="es-MX" voice="Polly.Lupe">{{message}}</Say>
+   </Response>
+   ```
+3. Copia la URL y pégala en `twiml_bin_url`
+
+---
+
+## 📅 Scheduler — Llamadas y Mensajes Programados
+
+El scheduler usa expresiones **cron** para ejecutar tareas en horarios definidos.
+
+### ¿Qué es una expresión cron?
+
+```
+┌──────────── segundo  (0-59)
+│ ┌────────── minuto   (0-59)
+│ │ ┌──────── hora     (0-23)
+│ │ │ ┌────── día mes  (1-31)
+│ │ │ │ ┌──── mes      (1-12)
+│ │ │ │ │ ┌── día semana (0=Dom, 1=Lun ... 6=Sab)
+│ │ │ │ │ │
+0 0 9 * * 1   →  Lunes a las 9:00:00 AM
+0 0 14 * * *  →  Todos los días a las 2:00 PM
+@every 30m    →  Cada 30 minutos
+@daily        →  Cada día a medianoche
+```
+
+### Tipos de Jobs
+
+| Tipo | Requiere | Acción |
+|------|----------|--------|
+| `call` | `voice.provider: twilio` | Llamada telefónica real outbound |
+| `voice_message` | `voice.provider: google` | Audio MP3 generado y enviado |
+| `text_message` | Provider de mensajería activo | Texto plano al chat |
+
+### Flujo del Scheduler
+
+```
+nexus serve
+    │
+    ├── scheduler.New(cfg, voiceProvider, msgProvider)
+    │       │
+    │       ├── Lee cfg.Scheduler.Jobs
+    │       ├── Registra expresiones cron
+    │       └── cron.Start() ← corre en background (goroutine)
+    │
+    │   [Al llegar la hora configurada]
+    │
+    ├── runJob(job) según tipo:
+    │       ├── "call"          → voiceProvider.MakeCall(to, message)
+    │       ├── "voice_message" → voiceProvider.TextToSpeech() → sendAudio()
+    │       └── "text_message"  → msgProvider.SendMessage(to, message)
+    │
+    └── Log: ✅ Job 'recordatorio': mensaje enviado a +584121234567
+```
+
+### Configuración del Scheduler
+
+```yaml
+scheduler:
+  enabled: true
+  jobs:
+    - name: "recordatorio_citas"
+      cron: "0 0 9 * * 1"          # Lunes 9am
+      type: "call"
+      to: "+584121234567"
+      message: "Hola! Te llamo para recordarte tu cita de hoy."
+
+    - name: "seguimiento_leads"
+      cron: "0 30 10 * * *"         # Diario 10:30am
+      type: "text_message"
+      to: "123456789"               # chat_id Telegram o JID WhatsApp
+      message: "¿Tienes alguna pregunta sobre nuestros servicios?"
+```
+
+---
+
+## 🤝 Sales Agent — Agente de Ventas con FSM
+
+### ¿Qué es una FSM (Finite State Machine)?
+
+Una **máquina de estados finita** es un modelo de comportamiento donde el sistema solo puede estar en **un estado a la vez**, y transiciona entre estados según reglas predefinidas. En Nexus, cada conversación de ventas tiene su propio estado persistido en Redis.
+
+```
+Estado actual + Evento → Siguiente estado
+```
+
+### Estados del Funnel de Ventas
+
+```
+  ┌─────────┐
+  │  IDLE   │ ← Usuario nuevo o sin conversación activa
+  └────┬────┘
+       │ Primer mensaje
+       ▼
+  ┌──────────┐
+  │ GREETING │ Saluda y pregunta cómo puede ayudar
+  └────┬─────┘
+       │ max_turns alcanzado o [AVANZAR]
+       ▼
+  ┌──────────┐
+  │ QUALIFY  │ Identifica necesidades y pain points
+  └────┬─────┘
+       │
+       ▼
+  ┌─────────┐
+  │ PRESENT │ Presenta el producto según las necesidades
+  └────┬────┘
+       │                    ┌──────────────┐
+       ├───────────────────►│  OBJECTION   │ Maneja dudas y objeciones
+       │                    └──────┬───────┘
+       │                           │ Resuelto
+       ▼                           │
+  ┌───────┐ ◄─────────────────────┘
+  │ CLOSE │ Propone próximo paso (demo, trial, contacto)
+  └───┬───┘
+      │ No cierra
+      ▼
+  ┌───────────┐
+  │ FOLLOW_UP │ Deja la puerta abierta, datos de contacto
+  └─────┬─────┘
+        │
+        ▼
+  ┌──────┐
+  │ DONE │ Conversación finalizada
+  └──────┘
+```
+
+**Señales de control** — La IA incluye estas etiquetas al final de su respuesta para indicar transiciones:
+
+| Señal | Acción |
+|-------|--------|
+| `[AVANZAR]` | Pasa al siguiente estado del flujo |
+| `[CERRAR]` | Salta directamente a `CLOSE` |
+| `[FIN]` | Va a `DONE` (conversación terminada) |
+
+Estas señales se eliminan antes de enviar la respuesta al usuario.
+
+### Flujo de un Mensaje en Modo Sales Agent
+
+```
+Usuario envía: "Hola, ¿qué servicios ofrecen?"
+       │
+       ▼
+handler.go → globalSalesAgent != nil → modo FSM activo
+       │
+       ▼
+stateStore.Get(senderID) → Estado actual: QUALIFY (turno 2/4)
+       │
+       ▼
+SalesAgent.BuildPrompt(state) →
+  "Estás en fase de calificación.
+   Objetivo: identificar las necesidades...
+   Turno 2 de máximo 4."
+       │
+       ▼
+brain.GetContext(senderID) → Historial reciente de Redis
+       │
+       ▼
+brain.Provider.Ask(fullPrompt + historial + mensaje)
+       │
+       ▼
+Respuesta IA: "Entiendo que buscas optimizar tu soporte. 
+               ¿Cuántos agentes tiene tu equipo actualmente? [AVANZAR]"
+       │
+       ▼
+NextState: QUALIFY → PRESENT (detectó [AVANZAR])
+       │
+       ▼
+CleanResponse: elimina "[AVANZAR]" del texto
+       │
+       ▼
+stateStore.Save(senderID, {state: PRESENT, turns: 0})
+       │
+       ▼
+sendMsg(senderID, "Entiendo que buscas optimizar tu soporte. 
+                   ¿Cuántos agentes tiene tu equipo actualmente?")
+```
+
+### Persistencia de Estado en Redis
+
+```
+Clave:   sales:state:<senderID>
+Valor:   JSON { "state": "qualify", "turns": 2, "total_turns": 5,
+                "user_data": {}, "updated_at": "2026-04-23T..." }
+TTL:     24 horas (conversación activa)
+```
+
+Para inspeccionar el estado de un usuario:
+```bash
+redis-cli GET "sales:state:123456789"
+redis-cli DEL "sales:state:123456789"   # Reiniciar conversación
+```
+
+El usuario también puede escribir `reiniciar` o `reset` para empezar de nuevo.
+
+### Configuración del Sales Agent
+
+```yaml
+sales_agent:
+  enabled: true              # true = responde a TODOS los mensajes
+  product_name: "Mi Empresa" # Se inyecta en los prompts
+
+  states:
+    greeting:
+      prompt: |
+        Eres un asesor de ventas amigable de {product}.
+        Saluda y haz UNA pregunta abierta. Máx 2 oraciones.
+      max_turns: 2
+
+    qualify:
+      prompt: |
+        Identifica las necesidades del cliente. Una pregunta a la vez.
+        Pregunta sobre: negocio actual, problema a resolver, urgencia.
+      max_turns: 4
+
+    present:
+      prompt: |
+        Presenta los beneficios MÁS RELEVANTES al problema del cliente.
+        Usa beneficios concretos, no características genéricas.
+      max_turns: 3
+
+    objection:
+      prompt: |
+        Maneja objeciones con empatía. Valida y reencuadra.
+      max_turns: 3
+
+    close:
+      prompt: |
+        Propón un próximo paso concreto: demo, trial, llamada.
+      max_turns: 3
+
+    follow_up:
+      prompt: |
+        Deja la puerta abierta. Da datos de contacto directo.
+      max_turns: 2
+```
+
+> **IMPORTANTE:** Con `sales_agent.enabled: true`, el trigger `nexus` ya **no es necesario**. El agente responde a **cualquier** mensaje. Ideal para bots de ventas dedicados.
+
+---
+
+## 🔄 Flujo Completo de Arranque (`nexus serve`)
+
+```
+nexus serve
+    │
+    ├── 1. config.LoadConfig()           Lee config.yaml
+    │
+    ├── 2. database.RunMigrations()      Crea tablas en PostgreSQL
+    │
+    ├── 3. nlp.NewBrain()               Inicia Gemini/OpenAI + Redis
+    │
+    ├── 4. messaging.SetConfig()         ← NUEVO
+    │       └── Si sales_agent.enabled → NewSalesAgent() → FSM listo
+    │
+    ├── 5. messaging.InitProvider()      Inicia el canal activo
+    │       └── telegram/whatsapp/discord/etc.
+    │
+    ├── 6. voice.InitProvider()          ← NUEVO
+    │       └── twilio/google/none
+    │
+    ├── 7. scheduler.New().Start()       ← NUEVO
+    │       └── Registra cron jobs en background
+    │
+    ├── 8. http.ListenAndServe()         API + TwiML endpoint
+    │       ├── POST /api/webhook/ai
+    │       └── GET  /voice/twiml       (si voice.provider = twilio)
+    │
+    └── 📌 Nexus escuchando... (Ctrl+C para detener)
+```
 
 ---
 
@@ -64,38 +439,45 @@ Nexus es un agente de automatización desarrollado en **Go** que actúa como un 
 
 ```
 nexus/
-├── cmd/nexus/main.go              # Punto de entrada
-├── config.yaml                    # Tu configuración (en .gitignore)
-├── config.example.yaml            # Plantilla de configuración ← copia esto
+├── cmd/nexus/main.go
+├── config.yaml
+├── config.example.yaml
 ├── internal/
-│   ├── api/                       # API Genérica (Webhook POST)
-│   ├── cli/                       # Comandos CLI (cobra)
-│   │   ├── serve.go               # nexus serve
-│   │   ├── ingest.go              # nexus ingest
-│   │   ├── send.go                # nexus send
-│   │   ├── status.go              # nexus status
-│   │   └── summarize.go           # nexus summarize
-│   ├── config/config.go           # Structs de configuración YAML
-│   ├── database/                  # Migraciones y queries PostgreSQL
+│   ├── agent/                         ← NUEVO
+│   │   ├── fsm.go                     # FSM + StateStore (Redis)
+│   │   └── sales_agent.go             # Orquestador del agente de ventas
+│   ├── api/handler.go                 # API Webhook genérico
+│   ├── cli/
+│   │   ├── serve.go                   # nexus serve (actualizado)
+│   │   ├── ingest.go                  # nexus ingest
+│   │   ├── send.go                    # nexus send
+│   │   ├── status.go                  # nexus status
+│   │   └── summarize.go               # nexus summarize
+│   ├── config/config.go               # Structs YAML (actualizado)
+│   ├── database/                      # Migraciones y queries
 │   ├── messaging/
-│   │   ├── provider.go            # Registro y factory de proveedores
-│   │   ├── handler.go             # Handler centralizado (rate limit + cuota + IA)
-│   │   ├── whatsapp/
-│   │   │   ├── mau.go             # WhatsApp no-oficial (whatsmeow)
-│   │   │   └── meta.go            # WhatsApp Business API
-│   │   ├── telegram/telegram.go   # Bot de Telegram
-│   │   ├── discord/discord.go     # Bot de Discord
-│   │   ├── slack/slack.go         # App de Slack (Socket Mode)
-│   │   ├── instagram/instagram.go # Instagram DM
-│   │   ├── messenger/messenger.go # Facebook Messenger
-│   │   ├── twilio/twilio.go       # SMS via Twilio
-│   │   └── email/email.go         # IMAP/SMTP
-│   └── nlp/
-│       ├── brain.go               # Orquestador principal de IA
-│       ├── gemini.go              # Proveedor Google Gemini
-│       ├── openai.go              # Proveedor OpenAI
-│       └── rag.go                 # Sistema RAG con pgvector
-└── knowledge/                     # Archivos .md para ingestar en RAG
+│   │   ├── provider.go                # Factory de proveedores
+│   │   ├── handler.go                 # Handler centralizado (actualizado)
+│   │   ├── whatsapp/{mau,meta}.go
+│   │   ├── telegram/telegram.go
+│   │   ├── discord/discord.go
+│   │   ├── slack/slack.go
+│   │   ├── instagram/instagram.go
+│   │   ├── messenger/messenger.go
+│   │   ├── twilio/twilio.go
+│   │   └── email/email.go
+│   ├── nlp/
+│   │   ├── brain.go                   # Orquestador IA
+│   │   ├── gemini.go                  # Google Gemini (TTS/STT incluido)
+│   │   ├── openai.go                  # OpenAI
+│   │   └── rag.go                     # RAG con pgvector
+│   ├── scheduler/                     ← NUEVO
+│   │   └── scheduler.go               # Cron engine (robfig/cron/v3)
+│   └── voice/                         ← NUEVO
+│       ├── provider.go                # Interfaz VoiceProvider
+│       ├── twilio/voice.go            # Llamadas outbound + TwiML
+│       └── google/voice.go            # Google Cloud TTS → MP3
+└── knowledge/                         # Archivos .md para RAG
 ```
 
 ---
@@ -113,130 +495,111 @@ nexus/
 ```bash
 git clone https://github.com/tu-usuario/nexus.git
 cd nexus
-
-# Copiar la plantilla de configuración
 cp config.example.yaml config.yaml
-
-# Editar con tus credenciales
-# Cambia messaging.provider al canal que quieras usar
-notepad config.yaml  # o tu editor preferido
+# Editar config.yaml con tus credenciales
 ```
 
-### 2. Levantar infraestructura con Docker
+### 2. Levantar infraestructura
 
 ```bash
 docker-compose up -d
 ```
 
-El `docker-compose.yml` levanta PostgreSQL (con pgvector) y Redis.
-
 ### 3. Compilar y ejecutar
 
 ```bash
-# Compilar
 go build -o nexus.exe ./cmd/nexus
-
-# Encender Nexus
 ./nexus serve
 ```
 
 ### Comandos disponibles
 
 ```bash
-nexus serve       # Inicia el agente en la plataforma configurada
+nexus serve       # Inicia el agente (mensajería + voz + scheduler + FSM)
 nexus status      # Verifica conexión con IA y base de datos
-nexus ingest      # Carga un archivo .md a la base de conocimientos RAG
-nexus send        # Envía un mensaje manual desde la CLI
+nexus ingest      # Carga archivo .md a la base de conocimientos RAG
+nexus send        # Envía mensaje manual desde la CLI
 nexus summarize   # Resume la conversación reciente
 nexus help-me     # Ayuda interactiva
 ```
 
 ---
 
-## 🌐 API Genérica (Webhook de IA)
+## 🤖 Modos de Respuesta
 
-Nexus ofrece un endpoint universal para que cualquier aplicación externa (Web, Mobile, CRM) pueda consumir su inteligencia de forma segura.
+### Modo Normal (trigger `nexus`)
 
-### Endpoint
-`POST /api/webhook/ai`
+El agente solo responde cuando el mensaje comienza con la palabra `nexus`:
 
-### Seguridad (API Key)
-Debes incluir el siguiente header en tu petición:
-`X-Nexus-API-Key: <tu_api_key_configurado>`
-
-### Formato de Petición (JSON)
-```json
-{
-  "user_id": "usuario_123",
-  "message": "Hola Nexus, ¿cuál es el estado de mi pedido?"
-}
+```
+nexus ¿cuáles son los horarios de atención?
+nexus necesito información sobre el producto X
 ```
 
-### Formato de Respuesta (JSON)
+### Modo Sales Agent (sin trigger)
+
+Con `sales_agent.enabled: true`, el agente responde a **todos** los mensajes y guía la conversación por el funnel de ventas automáticamente.
+
+---
+
+## 🌐 API Genérica (Webhook de IA)
+
+```
+POST /api/webhook/ai
+Header: X-Nexus-API-Key: <tu_api_key>
+Body: { "user_id": "usuario_123", "message": "¿Cuál es el precio?" }
+```
+
 ```json
-{
-  "reply": "Respuesta procesada con RAG y memoria...",
-  "session_id": "usuario_123"
-}
+{ "reply": "El plan básico es...", "session_id": "usuario_123" }
 ```
 
 ---
 
-## ⚙️ Configuración Global y por Plataforma
+## 🧠 Sistema RAG (Retrieval-Augmented Generation)
 
-Copia `config.example.yaml` como `config.yaml` y configura la sección del proveedor que necesites.
+Nexus usa **pgvector** para almacenar embeddings de documentos. Al recibir un mensaje, recupera los fragmentos más relevantes y los inyecta en el prompt antes de llamar al LLM. Esto evita alucinaciones y permite respuestas basadas en tu documentación.
 
-### Configuración del Servidor y API Key
-```yaml
-server:
-  port: 18789
-  api_key: "tu_token_secreto_aquí" # Requerido para /api/webhook/ai
+```bash
+nexus ingest --file knowledge/catalogo.md
+nexus ingest --file knowledge/faq.md
 ```
 
-### 🔵 Telegram (recomendado para empezar)
+---
 
-No requiere URL pública. Usa Long Polling.
+## 🛡️ Rate Limiting y Cuotas
+
+| Mecanismo | Tecnología | Límite |
+|-----------|-----------|--------|
+| **Rate Limit** | Redis (`ratelimit:<id>`) | 10 msg/segundo por usuario |
+| **Cuota mensual** | PostgreSQL (`message_quotas`) | Configurable por cuenta |
+
+---
+
+## ⚙️ Configuración por Plataforma
+
+### 🔵 Telegram (recomendado)
 
 ```yaml
 messaging:
   provider: "telegram"
   telegram:
-    bot_token: "1234567890:AAFxxxxxxxxxxxxxxxxxxx"
+    bot_token: "1234567890:AAFxxx"
 ```
+Obtén el token con **@BotFather** → `/newbot`.
 
-**Cómo obtener el token:**
-1. Abre Telegram → busca **@BotFather**
-2. Envía `/newbot` → elige nombre y @username
-3. Copia el token que te entrega
-
----
-
-### 🟣 Discord (sin URL pública)
-
-Usa Gateway WebSocket. El bot responde en cualquier canal donde tenga permisos.
+### 🟣 Discord
 
 ```yaml
 messaging:
   provider: "discord"
   discord:
     bot_token: "TU_TOKEN"
-    guild_id: ""   # Opcional: limita a un servidor
+    guild_id: ""
 ```
+[discord.com/developers](https://discord.com/developers/applications) → Bot → Reset Token. Activa **Message Content Intent**.
 
-**Cómo obtener el token:**
-1. [discord.com/developers](https://discord.com/developers/applications) → **New Application**
-2. Sección **Bot** → **Reset Token** → copia el token
-3. Activa **Message Content Intent** (Bot → Privileged Gateway Intents)
-4. Invita el bot:
-   ```
-   https://discord.com/oauth2/authorize?client_id=TU_APP_ID&permissions=2048&scope=bot
-   ```
-
----
-
-### 🟡 Slack — Socket Mode (sin URL pública)
-
-Socket Mode establece un WebSocket saliente: no necesitas abrir puertos.
+### 🟡 Slack (Socket Mode)
 
 ```yaml
 messaging:
@@ -247,32 +610,15 @@ messaging:
     signing_secret: "..."
 ```
 
-**Cómo configurar:**
-1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch
-2. **Socket Mode** → Enable → genera **App-Level Token** (`xapp-...`)
-3. **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `im:read`, `im:history`, `channels:history`, `users:read`
-4. **Event Subscriptions** → Subscribe to bot events: `message.im`, `message.channels`
-5. **Install to Workspace** → copia el **Bot User OAuth Token** (`xoxb-...`)
-
----
-
 ### 🟢 WhatsApp Mau (no-oficial)
 
 ```yaml
 messaging:
   provider: "mau"
-  # No requiere configuración extra
 ```
+Al arrancar muestra un QR para vincular con tu WhatsApp.
 
-Al ejecutar `nexus serve` se mostrará un código QR para vincularlo con tu WhatsApp.
-
-> ⚠️ Uso no oficial. Riesgo de baneo si se detecta uso masivo de spam.
-
----
-
-### ⚪ WhatsApp Business API — Meta (oficial)
-
-Requiere URL pública (o ngrok para desarrollo).
+### ⚪ WhatsApp Business API
 
 ```yaml
 messaging:
@@ -284,70 +630,19 @@ messaging:
       verify_token: "mi_verify_token"
 ```
 
-**Webhook endpoint:** `POST /webhook`
-
----
-
-### 🟠 Instagram DM
-
-Requiere cuenta **Instagram Business o Creator** vinculada a una Página de Facebook.
-
-```yaml
-messaging:
-  provider: "instagram"
-  instagram:
-    page_access_token: "TU_TOKEN"
-    verify_token: "nexus_instagram_verify"
-    ig_id: "TU_INSTAGRAM_BUSINESS_ID"   # ID numérico, no el @username
-```
-
-**Permisos necesarios:** `instagram_manage_messages`, `instagram_basic`, `pages_show_list`
-**Webhook endpoint:** `GET|POST /webhook/instagram`
-
----
-
-### 🔵 Facebook Messenger
-
-```yaml
-messaging:
-  provider: "messenger"
-  messenger:
-    page_access_token: "TU_TOKEN"
-    verify_token: "nexus_messenger_verify"
-    page_id: "TU_PAGE_ID"
-```
-
-**Permisos necesarios:** `pages_messaging`, `pages_read_engagement`
-**Webhook endpoint:** `GET|POST /webhook/messenger`
-
----
-
 ### 📱 Twilio SMS
-
-Nexus levanta un servidor HTTP en `webhook_port` para recibir los SMS entrantes de Twilio.
 
 ```yaml
 messaging:
   provider: "twilio"
   twilio:
-    account_sid: "ACxxxxxxxxxxxxxxxx"
-    auth_token: "TU_AUTH_TOKEN"
-    from_number: "+1XXXXXXXXXX"   # Formato E.164
+    account_sid: "ACxxxx"
+    auth_token: "xxxx"
+    from_number: "+1XXXXXXXXXX"
     webhook_port: 18790
 ```
 
-**Para desarrollo local, expón el puerto con ngrok:**
-```bash
-ngrok http 18790
-# Luego configura la URL en Twilio Console →
-# Phone Numbers → Messaging → Webhook URL → https://xxxx.ngrok.io/webhook/sms
-```
-
----
-
 ### 📧 Email (IMAP + SMTP)
-
-El bot revisa el inbox cada N segundos buscando correos no leídos. Funciona con Gmail, Outlook, Zoho o cualquier proveedor IMAP estándar.
 
 ```yaml
 messaging:
@@ -362,116 +657,52 @@ messaging:
     poll_interval_seconds: 30
 ```
 
-**Para Gmail:** activa **App Passwords** en `myaccount.google.com → Security → App passwords`.
-
 ---
 
-## 🧠 Sistema RAG (Retrieval-Augmented Generation)
+## 💼 Arquitectura SaaS
 
-Para evitar alucinaciones, Nexus usa una base de conocimientos vectorial en PostgreSQL mediante `pgvector`. Los documentos se dividen en fragmentos, se procesan con el modelo de embeddings de IA y se almacenan para búsqueda por similitud de coseno.
-
-```bash
-# Ingesta tu base de conocimientos (acepta archivos Markdown)
-nexus ingest --file knowledge/catalogo.md
-nexus ingest --file knowledge/faq.md
-```
-
-Cada vez que llega un mensaje, Nexus recupera automáticamente los fragmentos más relevantes antes de formular la respuesta.
-
----
-
-## 🛡️ Rate Limiting y Cuotas
-
-### Rate Limit (Redis)
-Protege la API de IA contra spam. Límite configurable de mensajes por segundo por usuario. Si se supera, Nexus responde automáticamente con una advertencia y descarta la solicitud.
-
-### Cuotas Mensuales (PostgreSQL)
-Cada usuario tiene un contador de mensajes procesados. Al superar el límite asignado, Nexus responde con un mensaje de alerta personalizado y deja de consumir tokens de IA, protegiendo tus costos.
-
----
-
-## 🤖 Cómo hablar con Nexus
-
-En todas las plataformas, el agente responde a mensajes que comiencen con la palabra clave **`nexus`**:
+### Single-Tenant (0–50 clientes)
 
 ```
-nexus ¿cuáles son los horarios de atención?
-nexus necesito información sobre el producto X
-nexus resumen de las últimas conversaciones
-```
-
----
-
-## 💼 Arquitectura SaaS y Modelo de Negocio
-
-### Estructura de Costos
-
-**Meta WhatsApp:** No cobra por mensaje individual, sino por conversación de 24 horas (~$0.01 USD). Las primeras 1,000 conversaciones de servicio mensuales son gratuitas.
-
-**Google Gemini:** Tiene un free tier generoso. Para producción, los costos escalan con el volumen de tokens.
-
-**Twilio SMS:** ~$0.0075 USD por SMS enviado/recibido en EE.UU. Varía por país.
-
-### Enfoque 1: Single-Tenant (Un Contenedor por Cliente)
-
-*Arquitectura actual — recomendada para 0 a 50 clientes.*
-
-Un contenedor Docker aislado por cliente. Cada uno tiene su propio `config.yaml` con su token y prompt de IA.
-
-```
-VPS ($20 USD/mes — 4 GB RAM, 2 vCPUs)
+VPS ($20 USD/mes — 4 GB RAM)
 ├── nexus-cliente-A (15-30 MB RAM)
 ├── nexus-cliente-B (15-30 MB RAM)
 ├── ... × 40-60 clientes
-├── postgres (centralizado, múltiples DBs)
-└── redis (centralizado, prefijos por cliente)
+├── postgres (centralizado)
+└── redis   (centralizado, prefijos por cliente)
 ```
 
-Para escalar: agrega un VPS #2 y conecta los nuevos contenedores a la DB central.
-
-### Enfoque 2: Multi-Tenant (Un Proceso para Todos)
-
-*Requiere refactorización — recomendado para 50+ clientes.*
-
-Un único binario Nexus gestiona miles de clientes. El `phone_number_id` (o equivalente en cada plataforma) identifica al cliente en la DB, que almacena su token y prompt de IA.
+### Multi-Tenant (50+ clientes)
 
 ```
-VPS (con Load Balancer)
+VPS (Load Balancer)
 ├── nexus (1 proceso — miles de clientes)
 ├── postgres (multi-tenant)
 └── redis
 ```
 
-> **Estrategia recomendada:**
-> - **Fase 1 (0–30 clientes):** Single-Tenant. Más seguro para validar el modelo de negocio.
-> - **Fase 2 (+50 clientes):** Migrar a Multi-Tenant para eliminar la gestión de N contenedores.
-
 ---
 
-## ⚖️ Licencias de Dependencias
-
-Todas las librerías han sido auditadas. **Puedes comercializar Nexus sin restricciones.**
+## ⚖️ Licencias
 
 | Librería | Licencia | Uso comercial |
 |---|---|---|
-| `pgx`, `go-redis`, `cobra` | MIT / Apache 2.0 | ✅ Sin restricciones |
-| `generative-ai-go`, `go-openai` | Apache 2.0 | ✅ Sin restricciones |
-| `discordgo` | BSD 3-Clause | ✅ Sin restricciones |
-| `slack-go` | BSD 2-Clause | ✅ Sin restricciones |
-| `twilio-go` | MIT | ✅ Sin restricciones |
-| `go-imap` | MIT | ✅ Sin restricciones |
-| `telebot.v3` | MIT | ✅ Sin restricciones |
-| `whatsmeow`, `libsignal` | MPL-2.0 | ✅ Código Nexus puede ser privado* |
-
-> *MPL-2.0: Solo debes compartir modificaciones directas a los archivos de la librería. Tu código de Nexus puede ser completamente privado y comercial.
+| `pgx`, `go-redis`, `cobra` | MIT / Apache 2.0 | ✅ |
+| `generative-ai-go`, `go-openai` | Apache 2.0 | ✅ |
+| `discordgo` | BSD 3-Clause | ✅ |
+| `slack-go` | BSD 2-Clause | ✅ |
+| `twilio-go` | MIT | ✅ |
+| `go-imap` | MIT | ✅ |
+| `telebot.v3` | MIT | ✅ |
+| `whatsmeow` | MPL-2.0 | ✅ (código Nexus puede ser privado) |
+| `robfig/cron` | MIT | ✅ |
+| `cloud.google.com/go/texttospeech` | Apache 2.0 | ✅ |
 
 ---
 
-## 🔧 Agregar un Nuevo Proveedor
+## 🔧 Agregar un Nuevo Proveedor de Mensajería
 
-La arquitectura usa una interfaz `Provider` que facilita extender el sistema. Para agregar una nueva plataforma:
-
-1. Crea el paquete en `internal/messaging/<nombre>/<nombre>.go`
+1. Crea `internal/messaging/<nombre>/<nombre>.go`
 2. Implementa la interfaz:
    ```go
    type Provider interface {
@@ -480,6 +711,16 @@ La arquitectura usa una interfaz `Provider` que facilita extender el sistema. Pa
    }
    ```
 3. Añade `SetHandler()` para inyectar el handler centralizado
-4. Registra el nuevo caso en `provider.go`
-5. Añade el struct de configuración en `config.go`
-6. Agrega la sección en `config.example.yaml`
+4. Registra el caso en `provider.go` y `config.go`
+
+## 🔧 Agregar un Nuevo Proveedor de Voz
+
+1. Crea `internal/voice/<nombre>/voice.go`
+2. Implementa la interfaz:
+   ```go
+   type VoiceProvider interface {
+       TextToSpeech(text, lang string) ([]byte, error)
+       MakeCall(to, message string) error
+   }
+   ```
+3. Registra el caso en `voice/provider.go` y añade el struct en `config.go`

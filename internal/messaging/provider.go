@@ -22,11 +22,10 @@ type Provider interface {
 	Start(cfg *config.Config, dbDSN string, db *sql.DB, brain *nlp.Brain) error
 
 	// SendMessage envía un mensaje de texto a un destinatario.
-	// El formato de 'target' depende de la plataforma:
-	//   - WhatsApp Mau: JID (ej: "5841234567@s.whatsapp.net")
-	//   - WhatsApp Meta: número de teléfono (ej: "5841234567")
-	//   - Telegram: chat_id como string (ej: "123456789")
 	SendMessage(target string, text string) error
+
+	// SendAudio envía un archivo de audio (nota de voz).
+	SendAudio(target string, audioBytes []byte) error
 }
 
 // InitProvider detecta el proveedor configurado, inyecta el handler centralizado

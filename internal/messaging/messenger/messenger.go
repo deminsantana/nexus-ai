@@ -12,10 +12,10 @@ import (
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -116,6 +116,8 @@ func (p *MessengerProvider) processPayload(payload map[string]interface{}) {
 			if handleMsg != nil {
 				handleMsg("messenger", text, senderID, pushName, p.db, p.brain, func(targetID, replyText string) error {
 					return p.SendMessage(targetID, replyText)
+				}, func(targetID string, audioBytes []byte) error {
+					return p.SendAudio(targetID, audioBytes)
 				})
 			}
 		}
@@ -174,5 +176,11 @@ func (p *MessengerProvider) SendMessage(target string, text string) error {
 		return fmt.Errorf("error API Messenger [%d]: %s", resp.StatusCode, string(respBody))
 	}
 
+	return nil
+}
+
+// SendAudio envía un audio a Messenger. Actualmente placeholder.
+func (p *MessengerProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ Messenger: Intento de envío de audio (%d bytes) a %s. Funcionalidad en desarrollo.\n", len(audioBytes), target)
 	return nil
 }

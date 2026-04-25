@@ -12,10 +12,10 @@ import (
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -90,6 +90,8 @@ func (s *SlackProvider) Start(cfg *config.Config, dbDSN string, db *sql.DB, brai
 						if handleMsg != nil {
 							handleMsg("slack", msgText, userID, pushName, db, brain, func(targetID, text string) error {
 								return s.sendToChannel(channelID, text)
+							}, func(targetID string, audioBytes []byte) error {
+								return s.SendAudio(channelID, audioBytes)
 							})
 						}
 					}
@@ -120,4 +122,10 @@ func (s *SlackProvider) sendToChannel(channelID, text string) error {
 	}
 	_, _, err := s.client.PostMessage(channelID, slack.MsgOptionText(text, false))
 	return err
+}
+
+// SendAudio envía un audio a Slack. Actualmente placeholder.
+func (s *SlackProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ Slack: Intento de envío de audio (%d bytes) a %s. Funcionalidad en desarrollo.\n", len(audioBytes), target)
+	return nil
 }

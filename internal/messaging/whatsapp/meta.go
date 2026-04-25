@@ -18,11 +18,13 @@ type MetaProvider struct {
 	VerifyToken   string
 	db            *sql.DB
 	brain         *nlp.Brain
+	cfg           *config.Config
 }
 
 func (m *MetaProvider) Start(cfg *config.Config, dbDSN string, db *sql.DB, brain *nlp.Brain) error {
 	m.db = db
 	m.brain = brain
+	m.cfg = cfg
 
 	http.HandleFunc("/webhook", m.webhookHandler)
 
@@ -79,11 +81,8 @@ func (m *MetaProvider) webhookHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *MetaProvider) processWebhookMessage(msg map[string]interface{}, valueMap map[string]interface{}) {
-	if msgType, _ := msg["type"].(string); msgType != "text" {
-		return
-	}
-
 	from, _ := msg["from"].(string)
+	msgType, _ := msg["type"].(string)
 
 	pushName := from
 	if contacts, ok := valueMap["contacts"].([]interface{}); ok && len(contacts) > 0 {
@@ -96,15 +95,36 @@ func (m *MetaProvider) processWebhookMessage(msg map[string]interface{}, valueMa
 		}
 	}
 
-	textMap, ok := msg["text"].(map[string]interface{})
-	if !ok {
+	msgText := ""
+	if msgType == "text" {
+		if textMap, ok := msg["text"].(map[string]interface{}); ok {
+			msgText, _ = textMap["body"].(string)
+		}
+	} else if m.cfg != nil && m.cfg.Messaging.WhatsApp.HandleMedia {
+		// Reaccionar a contenido multimedia en Meta API
+		switch msgType {
+		case "image":
+			msgText = "[El usuario envió una Imagen]"
+		case "sticker":
+			msgText = "[El usuario envió un Sticker]"
+		case "video":
+			msgText = "[El usuario envió un Video]"
+		case "audio":
+			msgText = "[El usuario envió un Audio/Nota de voz]"
+		case "document":
+			msgText = "[El usuario envió un Documento]"
+		}
+	}
+
+	if msgText == "" {
 		return
 	}
-	msgText, _ := textMap["body"].(string)
 
 	if handleMsg != nil {
 		handleMsg("whatsapp_meta", msgText, from, pushName, m.db, m.brain, func(targetID, text string) error {
 			return m.SendMessage(targetID, text)
+		}, func(targetID string, audioBytes []byte) error {
+			return m.SendAudio(targetID, audioBytes)
 		})
 	}
 }
@@ -150,5 +170,11 @@ func (m *MetaProvider) SendMessage(target string, text string) error {
 		return fmt.Errorf("error API Meta: [%d] %s", resp.StatusCode, string(respBody))
 	}
 
+	return nil
+}
+
+// SendAudio envía un audio a la API de WhatsApp Business. Actualmente placeholder.
+func (m *MetaProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ WhatsApp Meta: Intento de envío de audio (%d bytes) a %s. Funcionalidad en desarrollo.\n", len(audioBytes), target)
 	return nil
 }

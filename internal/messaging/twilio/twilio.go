@@ -14,10 +14,10 @@ import (
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -93,6 +93,8 @@ func (t *TwilioProvider) smsHandler(w http.ResponseWriter, r *http.Request) {
 	if handleMsg != nil {
 		handleMsg("sms", body, from, pushName, t.db, t.brain, func(targetID, text string) error {
 			return t.SendMessage(targetID, text)
+		}, func(targetID string, audioBytes []byte) error {
+			return t.SendAudio(targetID, audioBytes)
 		})
 	}
 
@@ -122,6 +124,12 @@ func (t *TwilioProvider) SendMessage(target string, text string) error {
 			return fmt.Errorf("error enviando SMS via Twilio: %v", err)
 		}
 	}
+	return nil
+}
+
+// SendAudio envía un audio via Twilio. Actualmente placeholder para SMS.
+func (t *TwilioProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ Twilio SMS: Intento de envío de audio (%d bytes) a %s. Los SMS no soportan audio, usa Twilio Voice para llamadas.\n", len(audioBytes), target)
 	return nil
 }
 

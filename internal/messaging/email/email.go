@@ -15,10 +15,10 @@ import (
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -185,6 +185,8 @@ func (e *EmailProvider) processEmail(msg *imap.Message, section *imap.BodySectio
 	if handleMsg != nil {
 		handleMsg("email", msgText, from, pushName, e.db, e.brain, func(targetID, replyText string) error {
 			return e.SendMessage(targetID, replyText)
+		}, func(targetID string, audioBytes []byte) error {
+			return e.SendAudio(targetID, audioBytes)
 		})
 	}
 }
@@ -215,4 +217,10 @@ func (e *EmailProvider) SendMessage(target string, text string) error {
 		subject, e.User, target, text)
 
 	return smtp.SendMail(addr, auth, e.User, []string{target}, []byte(body))
+}
+
+// SendAudio envía un audio via Email. Actualmente placeholder.
+func (e *EmailProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ Email: Intento de envío de audio (%d bytes) a %s. Los emails de texto no soportan audio directo.\n", len(audioBytes), target)
+	return nil
 }

@@ -10,10 +10,10 @@ import (
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -69,6 +69,8 @@ func (d *DiscordProvider) onMessageCreate(s *discordgo.Session, m *discordgo.Mes
 	if handleMsg != nil {
 		handleMsg("discord", m.Content, senderID, pushName, d.db, d.brain, func(targetID, text string) error {
 			return d.sendToChannel(channelID, text)
+		}, func(targetID string, audioBytes []byte) error {
+			return d.SendAudio(channelID, audioBytes)
 		})
 	}
 }
@@ -85,4 +87,10 @@ func (d *DiscordProvider) sendToChannel(channelID, text string) error {
 	}
 	_, err := d.session.ChannelMessageSend(channelID, text)
 	return err
+}
+
+// SendAudio envía un audio a Discord. Actualmente placeholder.
+func (d *DiscordProvider) SendAudio(target string, audioBytes []byte) error {
+	fmt.Printf("🎙️ Discord: Intento de envío de audio (%d bytes) a %s. Funcionalidad en desarrollo.\n", len(audioBytes), target)
+	return nil
 }

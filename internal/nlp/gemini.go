@@ -16,7 +16,13 @@ type GeminiProvider struct {
 
 func NewGeminiProvider(cfg *config.Config) (*GeminiProvider, error) {
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(cfg.AI.APIKey))
+	
+	apiKey := cfg.AI.APIKey
+	if cfg.Google.APIKey != "" {
+		apiKey = cfg.Google.APIKey
+	}
+
+	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, err
 	}

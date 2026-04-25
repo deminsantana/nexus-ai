@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
 	"nexus-core/internal/api"
 	"nexus-core/internal/config"
 	"nexus-core/internal/database"
 	"nexus-core/internal/messaging"
 	"nexus-core/internal/nlp"
-	"net/http"
+	"nexus-core/internal/scheduler"
+	"nexus-core/internal/voice"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,14 +41,28 @@ var serveCmd = &cobra.Command{
 
 		fmt.Println("🚀 Nexus Core activado...")
 
-		// 2. Inicializar Cerebro (NLP)
+		// 2. Iniciar Cerebro (Gemini o OpenAI)
 		dbConn, _ := sql.Open("pgx", dsn)
-		brain, err := nlp.NewBrain(cfg, dbConn)
+		var brain *nlp.Brain
+		apiKey := cfg.AI.APIKey
+		if cfg.AI.Provider == "gemini" && cfg.Google.APIKey != "" {
+			apiKey = cfg.Google.APIKey
+		}
+		brain, err = nlp.NewBrain(cfg, dbConn)
 		if err != nil {
 			fmt.Printf("❌ Error Cerebro: %v\n", err)
 		}
 
-		// 3. Iniciar Proveedor de Mensajería (Telegram, WhatsApp Mau, WhatsApp Meta)
+		// 3. Iniciar Voice Provider
+		voiceProvider, err := voice.InitProvider(cfg)
+		if err != nil {
+			fmt.Printf("⚠️ Voice provider no disponible: %v\n", err)
+		}
+
+		// 4. Inyectar config y preparar Sales Agent FSM
+		messaging.SetConfig(cfg, brain, voiceProvider)
+
+		// 5. Iniciar Proveedor de Mensajería (Telegram, WhatsApp Mau, WhatsApp Meta, etc.)
 		provider, err := messaging.InitProvider(cfg)
 		if err != nil {
 			log.Fatalf("❌ Error inicializando proveedor: %v", err)
@@ -56,22 +72,52 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("❌ Error iniciando proveedor: %v", err)
 		}
+		
+		if voiceProvider != nil {
+			fmt.Printf("🎙️ Voice provider activo: %s\n", cfg.Voice.Provider)
+		}
 
-		// 4. Iniciar Servidor API y Webhooks centralizado
-		// Esto permite que el endpoint genérico y los webhooks de Meta/IG funcionen juntos
-		http.HandleFunc("/api/webhook/ai", api.NewAIHandler(brain, cfg))
-
-		port := fmt.Sprintf(":%d", cfg.Server.Port)
-		fmt.Printf("🌐 Servidor HTTP iniciado en puerto %d (API disponible en /api/webhook/ai)\n", cfg.Server.Port)
-
-		go func() {
-			if err := http.ListenAndServe(port, nil); err != nil {
-				fmt.Printf("❌ Error en Servidor HTTP Global: %v\n", err)
+		// 6. Iniciar Scheduler (llamadas y mensajes programados)
+		if cfg.Scheduler.Enabled {
+			sched := scheduler.New(cfg, voiceProvider, provider)
+			if err := sched.Start(); err != nil {
+				fmt.Printf("❌ Error iniciando scheduler: %v\n", err)
+			} else {
+				// Detener scheduler al cerrar
+				defer sched.Stop()
 			}
-		}()
+		}
 
-		// 5. BLOQUEO PARA MANTENER EL COMANDO VIVO
-		// Escuchamos señales de interrupción del sistema para cerrar elegantemente
+		// 7. Iniciar Servidor API y Webhooks centralizado (SOLO SI ESTÁ HABILITADO)
+		if cfg.Server.Enabled {
+			http.HandleFunc("/api/webhook/ai", api.NewAIHandler(brain, cfg))
+
+			// Endpoint TwiML local para llamadas Twilio (si se usa)
+			if cfg.Voice.Provider == "twilio" && cfg.Voice.Twilio.TwiMLBinURL == "" {
+				http.HandleFunc("/voice/twiml", func(w http.ResponseWriter, r *http.Request) {
+					message := r.URL.Query().Get("message")
+					if message == "" {
+						message = "Hola, soy Nexus, tu asistente inteligente de ventas."
+					}
+					w.Header().Set("Content-Type", "text/xml")
+					fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><Response><Say language="es-MX" voice="Polly.Lupe">%s</Say></Response>`, message)
+				})
+				fmt.Printf("🎤 TwiML local disponible en /voice/twiml\n")
+			}
+
+			port := fmt.Sprintf(":%d", cfg.Server.Port)
+			fmt.Printf("🌐 Servidor HTTP iniciado en puerto %d (API disponible en /api/webhook/ai)\n", cfg.Server.Port)
+
+			go func() {
+				if err := http.ListenAndServe(port, nil); err != nil {
+					fmt.Printf("❌ Error en Servidor HTTP Global: %v\n", err)
+				}
+			}()
+		} else {
+			fmt.Println("🌐 Servidor HTTP desactivado (según config.yaml)")
+		}
+
+		// 8. BLOQUEO PARA MANTENER EL COMANDO VIVO
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 

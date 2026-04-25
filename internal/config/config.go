@@ -9,8 +9,9 @@ import (
 )
 
 type ServerConfig struct {
-	Port   int    `yaml:"port"`
-	APIKey string `yaml:"api_key"`
+	Enabled bool   `yaml:"enabled"`
+	Port    int    `yaml:"port"`
+	APIKey  string `yaml:"api_key"`
 }
 
 type DatabaseConfig struct {
@@ -23,8 +24,8 @@ type DatabaseConfig struct {
 }
 
 type AIConfig struct {
-	Provider string `yaml:"provider"`
-	APIKey   string `yaml:"api_key"`
+	Provider string `yaml:"provider"` // "openai" | "gemini"
+	APIKey   string `yaml:"api_key"`  // Se mantiene para OpenAI
 	Model    string `yaml:"model"`
 }
 
@@ -42,7 +43,10 @@ type MetaConfig struct {
 }
 
 type WhatsAppProviderConfig struct {
-	Meta MetaConfig `yaml:"meta"`
+	Meta        MetaConfig `yaml:"meta"`
+	SessionPath string     `yaml:"session_path"`
+	AllowGroups bool       `yaml:"allow_groups"` // responder en grupos
+	HandleMedia bool       `yaml:"handle_media"` // reaccionar a stickers/fotos
 }
 
 type TelegramConfig struct {
@@ -114,12 +118,69 @@ type MessagingConfig struct {
 	Email     EmailConfig            `yaml:"email"`
 }
 
+// --- Voice Agent ---
+
+type VoiceTwilioConfig struct {
+	AccountSID  string `yaml:"account_sid"`
+	AuthToken   string `yaml:"auth_token"`
+	FromNumber  string `yaml:"from_number"`
+	TwiMLBinURL string `yaml:"twiml_bin_url"` // URL TwiML para llamadas outbound
+}
+
+type VoiceConfig struct {
+	Provider     string            `yaml:"provider"`      // "twilio" | "google" | "none"
+	ResponseMode string            `yaml:"response_mode"` // "text" | "voice" | "both"
+	Twilio       VoiceTwilioConfig `yaml:"twilio"`
+}
+
+type GoogleConfig struct {
+	APIKey          string  `yaml:"api_key"`          // Para Gemini (AI Studio)
+	CredentialsFile string  `yaml:"credentials_file"` // Para Cloud TTS (JSON)
+	Language        string  `yaml:"language"`
+	VoiceName       string  `yaml:"voice_name"`
+	Gender          string  `yaml:"gender"`
+	Pitch           float64 `yaml:"pitch"`
+	SpeakingRate    float64 `yaml:"speaking_rate"`
+}
+
+// --- Scheduler (llamadas programadas) ---
+
+type ScheduledJob struct {
+	Name    string `yaml:"name"`
+	Cron    string `yaml:"cron"`    // expresión cron, ej: "0 9 * * 1" o "@every 1m"
+	Type    string `yaml:"type"`    // "call" | "voice_message" | "text_message"
+	To      string `yaml:"to"`     // número E.164 o chat_id
+	Message string `yaml:"message"` // texto que se convierte en voz o se envía
+}
+
+type SchedulerConfig struct {
+	Enabled bool           `yaml:"enabled"`
+	Jobs    []ScheduledJob `yaml:"jobs"`
+}
+
+// --- Sales Agent FSM ---
+
+type SalesStateConfig struct {
+	Prompt   string `yaml:"prompt"`
+	MaxTurns int    `yaml:"max_turns"`
+}
+
+type SalesAgentConfig struct {
+	Enabled     bool                        `yaml:"enabled"`
+	ProductName string                      `yaml:"product_name"`
+	States      map[string]SalesStateConfig `yaml:"states"`
+}
+
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Messaging MessagingConfig `yaml:"messaging"`
-	Database  DatabaseConfig  `yaml:"database"`
-	Redis     RedisConfig     `yaml:"redis"`
-	AI        AIConfig        `yaml:"ai"`
+	Server     ServerConfig     `yaml:"server"`
+	Messaging  MessagingConfig  `yaml:"messaging"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Redis      RedisConfig      `yaml:"redis"`
+	AI         AIConfig         `yaml:"ai"`
+	Voice      VoiceConfig      `yaml:"voice"`
+	Google     GoogleConfig     `yaml:"google"` // <-- Nueva sección unificada
+	Scheduler  SchedulerConfig  `yaml:"scheduler"`
+	SalesAgent SalesAgentConfig `yaml:"sales_agent"`
 }
 
 func LoadConfig() *Config {

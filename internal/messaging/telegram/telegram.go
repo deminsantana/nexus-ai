@@ -6,16 +6,17 @@ import (
 	"nexus-core/internal/config"
 	"nexus-core/internal/nlp"
 	"strconv"
+	"strings"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
 )
 
 // handleMsg es inyectado desde el paquete messaging para usar el handler centralizado.
-var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)
+var handleMsg func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)
 
 // SetHandler permite al paquete messaging inyectar el handler centralizado.
-func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error)) {
+func SetHandler(h func(platform, msgText, senderStr, pushName string, db *sql.DB, brain *nlp.Brain, sendMsg func(string, string) error, sendAudio func(string, []byte) error)) {
 	handleMsg = h
 }
 
@@ -56,6 +57,8 @@ func (t *TelegramProvider) Start(cfg *config.Config, dbDSN string, db *sql.DB, b
 		if handleMsg != nil {
 			handleMsg("telegram", msg.Text, senderID, pushName, db, brain, func(targetID, text string) error {
 				return t.sendToChat(chatID, text)
+			}, func(targetID string, audioBytes []byte) error {
+				return t.SendAudio(chatID, audioBytes)
 			})
 		}
 		return nil
@@ -81,5 +84,21 @@ func (t *TelegramProvider) sendToChat(chatID string, text string) error {
 
 	chat := &tele.Chat{ID: id}
 	_, err = t.bot.Send(chat, text)
+	return err
+}
+
+// SendAudio envía un archivo de audio como nota de voz a Telegram.
+func (t *TelegramProvider) SendAudio(target string, audioBytes []byte) error {
+	id, err := strconv.ParseInt(target, 10, 64)
+	if err != nil {
+		return fmt.Errorf("chat_id inválido %q: %v", target, err)
+	}
+
+	chat := &tele.Chat{ID: id}
+	audioFile := &tele.Audio{
+		File: tele.FromReader(strings.NewReader(string(audioBytes))),
+	}
+	// Telegram lo trata como nota de voz si se envía con Send
+	_, err = t.bot.Send(chat, audioFile)
 	return err
 }
