@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS whatsapp_sessions (
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
-    embedding vector(3072)
+    embedding vector(3072),
+    source TEXT                       -- Columna añadida para rastrear el origen del archivo
 );
 
 -- Tabla de cuotas de uso (Rate Limiting por BD)
@@ -61,6 +62,8 @@ CREATE TABLE IF NOT EXISTS usage_quotas (
 
 -- Forzamos la actualización de la columna por si se había creado con 768 en el intento anterior
 ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(3072);
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS source TEXT;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS category TEXT;
 `
 
 func RunMigrations(conn *pgx.Conn) {

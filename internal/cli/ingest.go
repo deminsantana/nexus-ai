@@ -13,6 +13,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var clearFlag bool
+var tagFlag string
+var summarizeFlag bool
+
 var ingestCmd = &cobra.Command{
 	Use:   "ingest [archivo]",
 	Short: "Ingresa un archivo Markdown a la Base de Conocimientos",
@@ -47,7 +51,7 @@ var ingestCmd = &cobra.Command{
 		}
 
 		fmt.Println("🚀 Iniciando ingesta de documentos...")
-		err = brain.IngestDocument(filePath)
+		err = brain.IngestDocument(filePath, clearFlag, tagFlag, summarizeFlag)
 		if err != nil {
 			fmt.Printf("❌ Error en Ingesta: %v\n", err)
 		} else {
@@ -57,5 +61,8 @@ var ingestCmd = &cobra.Command{
 }
 
 func init() {
+	ingestCmd.Flags().BoolVarP(&clearFlag, "clear", "c", false, "Borrar toda la base de conocimientos antes de la ingesta")
+	ingestCmd.Flags().StringVarP(&tagFlag, "tag", "t", "", "Etiqueta para categorizar este conocimiento (ej: 'ventas')")
+	ingestCmd.Flags().BoolVarP(&summarizeFlag, "summarize", "s", false, "Usar IA para resumir fragmentos antes de vectorizar (mejora la búsqueda)")
 	rootCmd.AddCommand(ingestCmd)
 }

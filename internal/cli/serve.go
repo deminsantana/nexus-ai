@@ -44,10 +44,6 @@ var serveCmd = &cobra.Command{
 		// 2. Iniciar Cerebro (Gemini o OpenAI)
 		dbConn, _ := sql.Open("pgx", dsn)
 		var brain *nlp.Brain
-		apiKey := cfg.AI.APIKey
-		if cfg.AI.Provider == "gemini" && cfg.Google.APIKey != "" {
-			apiKey = cfg.Google.APIKey
-		}
 		brain, err = nlp.NewBrain(cfg, dbConn)
 		if err != nil {
 			fmt.Printf("❌ Error Cerebro: %v\n", err)

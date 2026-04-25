@@ -70,7 +70,7 @@ func (b *Brain) ProcessMessageWithContext(senderID, text string) (string, error)
 	pastTalk := b.GetContext(senderID)
 
 	// 2. RAG: Buscar conocimiento de negocio en PostgreSQL
-	knowledge, _ := b.SearchKnowledgeBase(text, 3)
+	knowledge, _ := b.SearchKnowledgeBase(text, 3, "")
 	
 	systemPrompt := "Eres Nexus, un asistente inteligente de ventas y soporte. "
 	

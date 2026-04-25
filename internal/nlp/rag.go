@@ -7,42 +7,71 @@ import (
 	"strings"
 )
 
-// IngestDocument lee un archivo, lo divide en chunks y lo guarda en PostgreSQL con sus embeddings
-func (b *Brain) IngestDocument(filePath string) error {
-	contentBytes, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("error leyendo archivo: %v", err)
+// IngestDocument lee un archivo o URL, lo divide en chunks y lo guarda en PostgreSQL.
+// - filePath: ruta al archivo o URL.
+// - clear: si es true, borra toda la base de datos.
+// - tag: categoría para filtrar (ej: "ventas", "soporte").
+// - summarize: si es true, usa la IA para resumir cada chunk antes de vectorizarlo.
+func (b *Brain) IngestDocument(filePath string, clear bool, tag string, summarize bool) error {
+	if clear {
+		fmt.Println("🧹 Limpiando TODA la base de conocimientos...")
+		b.DB.Exec("DELETE FROM knowledge_chunks")
+	} else {
+		fmt.Printf("🔄 Actualizando conocimiento del origen: %s (Tag: %s)\n", filePath, tag)
+		b.DB.Exec("DELETE FROM knowledge_chunks WHERE source = $1", filePath)
 	}
 
-	content := string(contentBytes)
-	// Chunking super simple: por doble salto de línea (párrafos)
+	var content string
+	var err error
+
+	// Detectar si es una URL
+	if strings.HasPrefix(filePath, "http://") || strings.HasPrefix(filePath, "https://") {
+		fmt.Println("🌐 Descargando contenido de URL...")
+		content, err = ScrapeURL(filePath)
+	} else {
+		contentBytes, errR := os.ReadFile(filePath)
+		err = errR
+		content = string(contentBytes)
+	}
+
+	if err != nil {
+		return fmt.Errorf("error obteniendo contenido: %v", err)
+	}
+
+	// Chunking
 	chunks := strings.Split(content, "\n\n")
 
-	for _, chunk := range chunks {
+	for i, chunk := range chunks {
 		chunk = strings.TrimSpace(chunk)
 		if chunk == "" {
 			continue
 		}
 
-		// 1. Generar embedding
-		embValues, err := b.Provider.Embed(chunk)
+		processText := chunk
+		if summarize {
+			fmt.Printf("📝 Resumiendo fragmento %d/%d...\n", i+1, len(chunks))
+			summary, sErr := b.Provider.Ask(fmt.Sprintf("Resume brevemente este texto para que sea fácil de encontrar en una búsqueda semántica. Mantén los datos clave (nombres, fechas, precios):\n\n%s", chunk))
+			if sErr == nil {
+				processText = summary
+			}
+		}
+
+		// 1. Generar embedding (del resumen si existe, o del original)
+		embValues, err := b.Provider.Embed(processText)
 		if err != nil {
 			log.Printf("Error al generar embedding para el chunk: %v", err)
 			continue
 		}
 
-		// 2. Formatear embedding como string para pgvector -> "[0.1, 0.2, ...]"
 		embStr := formatFloat32SliceForVector(embValues)
 
-		// 3. Insertar en base de datos
-		query := `INSERT INTO knowledge_chunks (content, embedding) VALUES ($1, $2)`
-		_, err = b.DB.Exec(query, chunk, embStr)
+		// 2. Insertar con tag y source
+		query := `INSERT INTO knowledge_chunks (content, embedding, source, category) VALUES ($1, $2, $3, $4)`
+		_, err = b.DB.Exec(query, chunk, embStr, filePath, tag)
 		if err != nil {
 			log.Printf("Error insertando chunk en db: %v", err)
 			continue
 		}
-		
-		log.Println("✅ Chunk indexado correctamente.")
 	}
 
 	return nil
@@ -57,17 +86,10 @@ func formatFloat32SliceForVector(values []float32) string {
 	return "[" + strings.Join(strs, ",") + "]"
 }
 
-// SearchKnowledgeBase toma la pregunta del usuario, busca en pgvector y retorna el contexto
-func (b *Brain) SearchKnowledgeBase(query string, limit int) (string, error) {
+// SearchKnowledgeBase toma la pregunta del usuario, busca en pgvector y filtra por categoría si se provee.
+func (b *Brain) SearchKnowledgeBase(query string, limit int, tag string) (string, error) {
 	if b.DB == nil {
 		return "", fmt.Errorf("DB no está instanciada en Brain")
-	}
-	
-	// Verificar si la base de datos ya tiene chunks
-	var count int
-	b.DB.QueryRow("SELECT COUNT(*) FROM knowledge_chunks").Scan(&count)
-	if count == 0 {
-		return "", nil // Base de conocimientos vacía, no usamos RAG
 	}
 
 	embValues, err := b.Provider.Embed(query)
@@ -77,15 +99,16 @@ func (b *Brain) SearchKnowledgeBase(query string, limit int) (string, error) {
 
 	embStr := formatFloat32SliceForVector(embValues)
 
-	// <=> es la Distancia del Coseno, ideal para texto. ORDER BY ascendente (los más similares primero)
+	// Construir query dinámica para filtrar por tag si no está vacío
 	sqlQuery := `
 		SELECT content 
 		FROM knowledge_chunks 
+		WHERE ($2 = '' OR category = $2)
 		ORDER BY embedding <=> $1 
-		LIMIT $2
+		LIMIT $3
 	`
 	
-	rows, err := b.DB.Query(sqlQuery, embStr, limit)
+	rows, err := b.DB.Query(sqlQuery, embStr, tag, limit)
 	if err != nil {
 		return "", fmt.Errorf("error haciendo query a knowledge_chunks: %v", err)
 	}

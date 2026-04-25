@@ -6,6 +6,17 @@ Nexus es un agente de automatización desarrollado en **Go** que actúa como pue
 
 ---
 
+## 🚀 Novedades: RAG Inteligente v2
+
+Nexus ha evolucionado su sistema de gestión de conocimientos para ser más autónomo y preciso:
+
+- **👀 Folder Watching:** Monitoreo de carpetas en tiempo real. Nexus auto-ingesta cualquier cambio en archivos `.md` automáticamente.
+- **🌐 Web Scraping:** Ingesta directa desde URLs. Nexus extrae el contenido de texto limpio de sitios web públicos para aprender de ellos.
+- **🛡️ Filtrado por Perfil:** Segmentación de conocimientos usando `rag_tag`. Cada agente (Ventas, Soporte, Médico) solo accede a la información que le corresponde.
+- **📝 Resumen IA:** Optimización de búsqueda mediante resúmenes automáticos. La IA sintetiza fragmentos largos antes de vectorizarlos para mejorar la puntería de la búsqueda semántica.
+
+---
+
 ## 🗺️ Plataformas de Mensajería
 
 | Proveedor | Plataforma | Mecanismo | URL pública |
@@ -357,49 +368,36 @@ redis-cli DEL "sales:state:123456789"   # Reiniciar conversación
 
 El usuario también puede escribir `reiniciar` o `reset` para empezar de nuevo.
 
-### Configuración del Sales Agent
+## 🛡️ Perfiles y Habilidades (Arquitectura Modular)
+
+Nexus ahora es modular. Puedes definir diferentes **Perfiles** y equiparlos con **Habilidades** (Skills) específicas según la necesidad del negocio.
+
+### Habilidades Disponibles
+
+| Habilidad | ID | Descripción |
+|-----------|----|-------------|
+| **Análisis de Sentimiento** | `sentiment` | Detecta la emoción del usuario (MOLESTO, ENTUSIASTA, etc.) y adapta la respuesta. |
+| **Base de Conocimientos** | `rag` | Busca información precisa en tus documentos o webs subidas vía `ingest`. |
+
+### Configuración de Perfiles y Tags
+
+En el `config.yaml`, cada perfil puede filtrar la base de conocimientos usando `rag_tag`:
 
 ```yaml
-sales_agent:
-  enabled: true              # true = responde a TODOS los mensajes
-  product_name: "Mi Empresa" # Se inyecta en los prompts
-
-  states:
-    greeting:
-      prompt: |
-        Eres un asesor de ventas amigable de {product}.
-        Saluda y haz UNA pregunta abierta. Máx 2 oraciones.
-      max_turns: 2
-
-    qualify:
-      prompt: |
-        Identifica las necesidades del cliente. Una pregunta a la vez.
-        Pregunta sobre: negocio actual, problema a resolver, urgencia.
-      max_turns: 4
-
-    present:
-      prompt: |
-        Presenta los beneficios MÁS RELEVANTES al problema del cliente.
-        Usa beneficios concretos, no características genéricas.
-      max_turns: 3
-
-    objection:
-      prompt: |
-        Maneja objeciones con empatía. Valida y reencuadra.
-      max_turns: 3
-
-    close:
-      prompt: |
-        Propón un próximo paso concreto: demo, trial, llamada.
-      max_turns: 3
-
-    follow_up:
-      prompt: |
-        Deja la puerta abierta. Da datos de contacto directo.
-      max_turns: 2
+profiles:
+  active_profile: "medical"
+  list:
+    - id: "support"
+      name: "Soporte Técnico"
+      skills: ["sentiment", "rag"]
+      rag_tag: "tecnico"      # Solo busca info etiquetada como 'tecnico'
+      system_prompt: "Eres el soporte técnico..."
 ```
 
-> **IMPORTANTE:** Con `sales_agent.enabled: true`, el trigger `nexus` ya **no es necesario**. El agente responde a **cualquier** mensaje. Ideal para bots de ventas dedicados.
+---
+
+## 🤝 Sales Agent (FSM Clásico)
+> **Nota:** Se mantiene por compatibilidad, pero se recomienda migrar a la nueva arquitectura de Perfiles para mayor flexibilidad.
 
 ---
 
@@ -561,8 +559,37 @@ Body: { "user_id": "usuario_123", "message": "¿Cuál es el precio?" }
 Nexus usa **pgvector** para almacenar embeddings de documentos. Al recibir un mensaje, recupera los fragmentos más relevantes y los inyecta en el prompt antes de llamar al LLM. Esto evita alucinaciones y permite respuestas basadas en tu documentación.
 
 ```bash
-nexus ingest --file knowledge/catalogo.md
-nexus ingest --file knowledge/faq.md
+### Ingesta de Conocimientos (RAG v2)
+
+El comando `ingest` ahora soporta múltiples orígenes y optimizaciones:
+
+```bash
+# 📂 Ingesta de Archivo local con etiqueta
+nexus ingest knowledge/faq.md --tag ventas
+
+# 🌐 Ingesta desde URL (Web Scraping)
+nexus ingest https://mi-sitio.com/precios --tag ventas
+
+# 📝 Ingesta con Resumen por IA (Mejora la precisión de búsqueda)
+nexus ingest knowledge/manual_largo.md --summarize
+
+# 🧹 Limpieza total antes de subir
+nexus ingest --clear knowledge/nuevo_manual.md
+```
+
+### Monitoreo Automático (Watcher)
+
+Si no quieres ejecutar comandos manualmente, Nexus puede vigilar una carpeta:
+
+```bash
+nexus watch knowledge/
+```
+- Cualquier archivo `.md` que guardes o modifiques en esa carpeta se sincronizará automáticamente con la base de datos de Nexus.
+
+### Resumen de Flags de `ingest`:
+- `-c, --clear`: Borra toda la base de datos de conocimiento.
+- `-t, --tag`: Etiqueta el contenido (para que solo ciertos perfiles lo usen).
+- `-s, --summarize`: La IA resume cada parte antes de guardarla (más lento pero mucho más preciso).
 ```
 
 ---

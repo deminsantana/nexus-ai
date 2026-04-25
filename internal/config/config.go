@@ -171,6 +171,21 @@ type SalesAgentConfig struct {
 	States      map[string]SalesStateConfig `yaml:"states"`
 }
 
+type ProfileConfig struct {
+	ID           string   `yaml:"id"`
+	Name         string   `yaml:"name"`
+	Role         string   `yaml:"role"`    // "sales", "support", "medical", "onboarding", "general"
+	Enabled      bool     `yaml:"enabled"`
+	Skills       []string `yaml:"skills"`  // ["sentiment", "rag", "scheduler"]
+	RAGTag       string   `yaml:"rag_tag"` // Etiqueta para filtrar conocimientos
+	SystemPrompt string   `yaml:"system_prompt"`
+}
+
+type ProfilesConfig struct {
+	ActiveProfile string          `yaml:"active_profile"` // ID del perfil por defecto
+	List          []ProfileConfig `yaml:"list"`
+}
+
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`
 	Messaging  MessagingConfig  `yaml:"messaging"`
@@ -180,7 +195,8 @@ type Config struct {
 	Voice      VoiceConfig      `yaml:"voice"`
 	Google     GoogleConfig     `yaml:"google"` // <-- Nueva sección unificada
 	Scheduler  SchedulerConfig  `yaml:"scheduler"`
-	SalesAgent SalesAgentConfig `yaml:"sales_agent"`
+	SalesAgent SalesAgentConfig `yaml:"sales_agent"` // Mantener por compatibilidad temporal
+	Profiles   ProfilesConfig   `yaml:"profiles"`    // Nueva sección modular
 }
 
 func LoadConfig() *Config {

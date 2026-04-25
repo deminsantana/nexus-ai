@@ -1,12 +1,15 @@
 package messaging
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"nexus-core/internal/agent"
 	"nexus-core/internal/config"
 	"nexus-core/internal/database"
 	"nexus-core/internal/nlp"
+	"nexus-core/internal/profiles"
+	"nexus-core/internal/skills"
 	"nexus-core/internal/voice"
 	"strings"
 )
@@ -23,6 +26,9 @@ var globalCfg *config.Config
 // globalSalesAgent es la instancia singleton del agente de ventas (nil si no está activado).
 var globalSalesAgent *agent.SalesAgent
 
+// globalProfileManager gestiona los perfiles y habilidades modulares.
+var globalProfileManager *profiles.Manager
+
 // globalVoiceProvider es el proveedor de voz activo para respuestas TTS.
 var globalVoiceProvider voice.Provider
 
@@ -30,6 +36,10 @@ var globalVoiceProvider voice.Provider
 func SetConfig(cfg *config.Config, brain *nlp.Brain, vp voice.Provider) {
 	globalCfg = cfg
 	globalVoiceProvider = vp
+	
+	// Inicializar Manager de Perfiles
+	globalProfileManager = profiles.NewManager(cfg.Profiles)
+	
 	if cfg.SalesAgent.Enabled {
 		globalSalesAgent = agent.NewSalesAgent(cfg.SalesAgent, brain.RDB)
 		fmt.Printf("🤝 Sales Agent FSM activado para producto: %s\n", cfg.SalesAgent.ProductName)
@@ -82,18 +92,43 @@ func HandleIncomingMessage(platform, msgText, senderStr, pushName string, db *sq
 			return
 		}
 
-		if err := sendMsg(senderStr, reply); err == nil {
+		// Decidir qué enviar según ResponseMode (unificado para ambos modos)
+		mode := strings.ToLower(globalCfg.Voice.ResponseMode)
+		if mode == "" {
+			mode = "text"
+		}
+
+		// 1. Enviar Texto (si el modo es 'text' o 'both')
+		if mode == "text" || mode == "both" {
+			err = sendMsg(senderStr, reply)
+		}
+
+		// 2. Enviar Voz (si el modo es 'voice' o 'both' Y hay proveedor de voz activo)
+		if mode == "voice" || mode == "both" {
+			if globalVoiceProvider != nil && (globalCfg.Voice.Provider == "google" || globalCfg.Voice.Provider == "twilio") {
+				fmt.Println("🎙️ Generando respuesta de voz (Sales Agent)...")
+				audio, vErr := globalVoiceProvider.TextToSpeech(reply, "")
+				if vErr == nil {
+					if errAudio := sendAudio(senderStr, audio); errAudio != nil {
+						fmt.Printf("❌ Error enviando audio FSM: %v\n", errAudio)
+					}
+				} else {
+					fmt.Printf("❌ Error en Voice Provider (FSM): %v\n", vErr)
+					if mode == "voice" {
+						sendMsg(senderStr, reply)
+					}
+				}
+			}
+		}
+
+		if err == nil {
 			database.IncrementQuota(db, senderStr)
-			
-			// OPCIONAL: Si hay voz activa, podríamos enviar el audio aquí también.
-			// Por ahora, el FSM se mantiene principalmente en texto por velocidad.
-		} else {
-			fmt.Printf("❌ Error al enviar respuesta FSM: %v\n", err)
 		}
 		return
 	}
 
-	// ── MODO NORMAL (trigger "nexus") ─────────────────────────────────────────
+	// ── MODO NORMAL / PERFILES ────────────────────────────────────────────────
+	// Solo responde si el mensaje empieza con "nexus" o si hay un perfil activo que lo requiera
 	if strings.HasPrefix(strings.ToLower(msgText), "nexus") {
 		// ... validaciones de rate limit y cuota ...
 		if brain.IsRateLimited(senderStr) {
@@ -107,14 +142,46 @@ func HandleIncomingMessage(platform, msgText, senderStr, pushName string, db *sq
 			return
 		}
 
-		fmt.Println("🧠 Procesando con IA...")
+		fmt.Println("🧠 Procesando con Perfiles y IA...")
 		cleanInput := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(msgText), "nexus"))
 
-		reply, err := brain.ProcessMessageWithContext(senderStr, cleanInput)
+		// 1. Obtener Perfil Activo
+		profile := globalProfileManager.GetActiveProfile()
+		fmt.Printf("👤 Perfil: %s | Rol: %s\n", profile.Name, profile.Role)
+
+		// 2. Ejecutar Habilidad: Análisis de Sentimiento
+		sentimentPrefix := ""
+		if profiles.HasSkill(profile, "sentiment") {
+			sentiment, err := skills.AnalyzeSentiment(context.Background(), brain, cleanInput)
+			if err == nil {
+				fmt.Printf("🎭 Sentimiento detectado: %s\n", sentiment)
+				sentimentPrefix = fmt.Sprintf("[Sentimiento del usuario: %s] ", sentiment)
+			}
+		}
+
+		// 3. Ejecutar Habilidad: FAQ / RAG
+		ragContext := ""
+		if profiles.HasSkill(profile, "rag") {
+			ragContext, _ = skills.RetrieveKnowledge(context.Background(), brain, cleanInput, profile.RAGTag)
+			if ragContext != "" {
+				fmt.Println("📚 Información de respaldo encontrada en RAG.")
+			}
+		}
+
+		// 4. Construir Prompt Final
+		finalPrompt := fmt.Sprintf("%s\n\n%s%s\n\nUsuario: %s\nNexus:", 
+			profile.SystemPrompt, ragContext, sentimentPrefix, cleanInput)
+
+		// 5. Generar Respuesta
+		reply, err := brain.Provider.Ask(finalPrompt)
 		if err != nil {
 			fmt.Printf("❌ Error IA: %v\n", err)
 			return
 		}
+
+		// Guardar contexto
+		brain.SaveContext(senderStr, "Usuario: "+cleanInput)
+		brain.SaveContext(senderStr, "Nexus: "+reply)
 
 		// Decidir qué enviar según ResponseMode
 		mode := strings.ToLower(globalCfg.Voice.ResponseMode)
@@ -122,34 +189,17 @@ func HandleIncomingMessage(platform, msgText, senderStr, pushName string, db *sq
 			mode = "text"
 		}
 
-		fmt.Printf("🔍 DEBUG: Mode='%s', VoiceProviderOK=%v, ProviderCfg='%s'\n", 
-			mode, globalVoiceProvider != nil, globalCfg.Voice.Provider)
-
-		// 1. Enviar Texto (si el modo es 'text' o 'both')
+		// 1. Enviar Texto
 		if mode == "text" || mode == "both" {
 			err = sendMsg(senderStr, reply)
 		}
 
-		// 2. Enviar Voz (si el modo es 'voice' o 'both' Y hay proveedor de voz activo)
+		// 2. Enviar Voz
 		if mode == "voice" || mode == "both" {
-			if globalVoiceProvider != nil && (globalCfg.Voice.Provider == "google" || globalCfg.Voice.Provider == "twilio") {
-				fmt.Println("🎙️ Generando respuesta de voz...")
+			if globalVoiceProvider != nil {
 				audio, vErr := globalVoiceProvider.TextToSpeech(reply, "")
 				if vErr == nil {
-					fmt.Printf("🔊 Voz generada (%d bytes). Enviando...\n", len(audio))
-					if errAudio := sendAudio(senderStr, audio); errAudio != nil {
-						fmt.Printf("❌ Error enviando audio a la plataforma: %v\n", errAudio)
-					}
-				} else {
-					fmt.Printf("❌ Error en Voice Provider: %v. Aplicando fallback a texto.\n", vErr)
-					if mode == "voice" {
-						sendMsg(senderStr, reply)
-					}
-				}
-			} else {
-				fmt.Printf("⚠️ No se puede enviar voz. Provider=%s, ProviderNil=%v\n", globalCfg.Voice.Provider, globalVoiceProvider == nil)
-				if mode == "voice" {
-					sendMsg(senderStr, reply)
+					sendAudio(senderStr, audio)
 				}
 			}
 		}
